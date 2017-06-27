@@ -15,14 +15,17 @@ class ClickCounter extends Component {
     }
 
     render() {
+        const counterStyle = {
+            margin: '16px'
+        };
         return (
-            <div>
+            <div style={counterStyle}>
                 <button onClick={this.onClickButton}>Click Me</button>
                 <div>
-                    Click Count: {this.state.count}
+                    Click Count: <span id="clickCount">{this.state.count}</span>
                 </div>
             </div>
-        )
+        );
     }
 }
 export default ClickCounter;
