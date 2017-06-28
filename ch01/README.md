@@ -198,3 +198,41 @@ test用於單元測試。
 ```
 npm run eject
 ```
+
+這個命令會改變一些文件，也會添加一些文件。
+
+當前目錄會增加兩個目錄，一個是script，另一個是config，同時，package.json文件中的scripts部分也發生了變化：
+
+```
+"scripts": {
+	"start": "node scripts/start.js",
+	"build": "node scripts/build.js",
+	"test": "node scripts/test.js --env=jsdom"
+},
+```
+
+從此之後，start腳本將使用scripts目錄下的start.js，而不是node_modules目錄下的react-scripts，彈射成功，再也回不去了。
+
+在config目錄下的*webpack.config.dev.js*文件，定製的就是npm start所做的構造過程，其中有一段關於babel的定義：
+
+```
+// Process JS with Babel.
+{
+	test: /\.(js|jsx)$/,
+	include: paths.appSrc,
+	loader: require.resolve('babel-loader'),
+	options: {
+	  
+	  // This is a feature of `babel-loader` for webpack (not Babel itself).
+	  // It enables caching results in ./node_modules/.cache/babel-loader/
+	  // directory for faster rebuilds.
+	  cacheDirectory: true,
+	},
+},
+```
+
+代碼中paths.appSrc的值就是src，所以這段配置的含義指的是所有以js或者jsx為擴展名的文件，都會由babel所處理。
+
+## React的工作方式
+
+我們用ClickCounter組件思考React工作方式，要了解一樣東西的特點，最好方法就是拿這個東西和另一樣東西做比較。我們就拿React和jQuery來比較。
