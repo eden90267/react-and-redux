@@ -236,3 +236,118 @@ npm run eject
 ## React的工作方式
 
 我們用ClickCounter組件思考React工作方式，要了解一樣東西的特點，最好方法就是拿這個東西和另一樣東西做比較。我們就拿React和jQuery來比較。
+
+### jQuery如何工作
+
+假設我們用jQuery來實現ClickCounter的功能，首先我們產生一個網頁的HTML(*index.html*)：
+
+```
+<!DOCTYPE html>
+<html lang="en">
+<body>
+<div>
+    <button id="clickMe">click Me</button>
+    <div>
+        Click Count: <span id="clickCount">0</span>
+    </div>
+</div>
+<script src="//lib.sinaapp.com/js/jquery/1.9.1/jquery-1.9.1.min.js"></script>
+<script src="./clickCounter.js"></script>
+</body>
+</html>
+```
+
+*clickCounter.js*：
+
+```
+$(function () {
+    $('#clickMe').click(function () {
+        var clickCounter = $('#clickCount');
+        var count = parseInt(clickCounter.text(), 10);
+        clickCounter.text(count + 1);
+    })
+});
+```
+
+在jQuery的解決方案中，首先根據CSS規則找到id為clickCount的按鈕，掛上一個匿名事件處理函數，在事件處理函數中，選中那個需要被修改DOM元素，讀取其中的文本值，加以修改，然後修改這個DOM元素。
+
+選中一些DOM元素，然後對這些元素作一些操作，這是一種最容易理解的開發模式。jQuery的發明人John Resig就是發現了網頁應用開發者的這個編程模式，才創造出了jQuery，一問世就得到普遍認可，因為這種模式直觀易懂。但是，對於龐大項目，這種模式會造成代碼結構複雜，難以維護，每個jQuery的使用者都會有這種體會。
+
+### React的理念
+
+React開發ClickCounter組件並沒有像jQuery那樣做“選中一些DOM元素然後做一些事情”的動作。
+
+開發者只要著重”我想要顯示什麼“，而不用操心”怎樣去做“。
+
+這種新的思維方式，對於一個簡單的例子也要編寫不少代碼，但是對於一個大型項目，這種方式編寫的代碼會更容易管理，因為整個React應用要做的就是渲染，開發者關注的是渲染什麼樣子，而不用關心如何實現增量渲染。
+
+React的理念，歸結為一個公式，就像下面這樣：
+
+```
+UI=render(data)
+```
+
+用戶看到的介面(UI)，應該是一個函數(這裡叫render)的執行結果，只接受數據(data)作為參數。這個函數是一個**純函數**。所謂純函數，指的是沒有任何副作用，輸出完全依賴於輸入的函數，兩次函數調用如果輸入相同，得到的結果也絕對相同。如此一來，最終的用戶介面，在render函數確定的情況下完全取決於輸入數據。
+
+對於開發者來說，重要的是區分開**哪些屬於data**，**哪些屬於render**，想要更新用戶介面，要做的就是更新data，用戶界面自然會做出響應。所以React實踐的也是“響應式編程(Reactive Programming)”的思想，這也就是React為什麼叫做React的原因。
+
+### Virtual DOM
+
+既然React應用就是透過重複渲染來實現用戶交互，你可能會有一個疑惑：這樣重複渲染會不會效能太低？在 React的實現方式中，看起來每次render函數被調用，都要把整個組件重新繪製一次，這樣看起來有點浪費。
+
+事實不是這樣，React利用Virtual DOM，讓每次渲染都只重新渲染最少的DOM元素。
+
+DOM是結構化文本的抽象表達形式，特定於Web環境中，這個結構化文本就是HTML文本，HTML中的每個元素都對應DOM中某個節點，這樣，因為HTML元素的逐級包含關係，DOM節點自然就構成了一個樹形結構，稱為DOM樹。
+
+瀏覽器為了渲染HTML格式的網頁，會先將HTML文本解析以構建DOM樹，然後根據DOM樹渲染出用戶看到的介面，當要改變介面內容的時候，就去改變DOM樹的節點。
+
+Web前端開發關於性能優化有一個原則：**盡量減少DOM操作**。雖然DOM操作也只是一些簡單的JavaScript語句，但是DOM操作會引起瀏覽器對網頁進行重新佈局，重新繪製，這就是一個比JavaScript語句執行慢很多的過程。
+
+如果使用mustache或hogan這樣的模板工具，那就是生成HTML字符串塞到網頁中，瀏覽器又要做一次解析產生新的DOM節點，然後替換DOM樹上對應的子樹部分，這個過程肯定效率不高。雖然JSX看起來很像一個模板，但是最終會被Babel解析為一條條構建React組件或者HTML元素的語句，神奇之處在於，React並不是透過這些語句直接構建DOM樹，而是首先構建Virtual DOM。
+
+DOM樹是對HTML的抽象，那Virtual DOM就是對DOM樹的抽象。Virtual DOM不會觸及瀏覽器的部分，只是存在於JavaScript空間的樹形結構，每次自上而下渲染React組件時，會對比這一次產生的Virtual DOM和上一次渲染的Virtual DOM，對比就會發現差別，然後修改真正的DOM樹時就只需要觸及差別中的部分就行。
+
+以ClickCounter為例，React透過Virtual DOM對比發現其實只是id為clickCount的span元素中內容從0變成1而已：
+
+```
+<span id="clickCount">{this.state.count}</span>
+```
+
+於是執行類似下面的語句，就完成任務：
+
+```
+document.getElementById('clickCount').innerHTML = '1';
+```
+
+### React工作方式的優點
+
+jQuery直觀易懂，但當項目逐漸變得龐大，用jQuery寫出的代碼往往互相糾纏，難以維護。
+
+```
+event  ->  DOM
+event  ->  DOM
+event  ->  DOM
+event  ->  DOM
+event  ->  DOM
+```
+(箭頭是錯綜複雜的)
+
+使用React的方式，就可避免構建複雜的程序結構，**無論何種事件**，**引發的都是React組件的重新渲染**，至於如何只修改必要的DOM部分，則完全交給React去操作，開發者並不需要關心。
+
+React利用函數式編程的思維來解決用戶界面渲染的問題，最大優勢是開發者的效率會提高，開發出來的代碼可維護性和可閱讀性也大大增強。
+
+```
+event
+event
+event  -> render -> Virtual DOM -> DOM修改
+event
+event
+```
+
+React等於強制所有組件都按照這種由**數據驅動渲染**的模式來工作，無論應用的規模多大，都能讓程序處於可控範圍內。
+
+## 本章小結
+
+React利用聲明式的語法，讓開發者專注於描述用戶介面“顯示成什麼樣子”，而不是重複思考“如何去顯示”，這樣可大大提高開發效率，也讓代碼更加容易維護。
+
+React是透過重複渲染來實現動態更新效果，但是借助Virutal DOM技術，實際上這個過程並不牽涉太多DOM操作，所以渲染效率很高。
