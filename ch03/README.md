@@ -58,3 +58,303 @@ Flux提供了一些輔助工具類和函數，能夠幫助創建Flux應用：
 ```
 npm install --save flux
 ```
+
+#### 1. Dispatcher
+
+首先，我們創造一個Dispatcher，幾乎所有應用都只需要擁有一個Dispatcher。
+
+*src/AppDispatcher.js*：
+
+```
+import {Dispatcher} from 'flux';
+
+export default new Dispatcher();
+```
+
+我們引入flux庫中的Dispatcher類，然後創造一個新的對象作為文件默認輸出就足夠了。
+
+Dispatcher存在的作用，就是用來派發action，接下來我們就來定義應用中涉及的action。
+
+#### 2. action
+
+action顧名思義代表一個“動作”，不過這個動作只是一個普通的JavaScript對象，代表一個動作的純數據，類似於DOM API中的事件(event)。甚至，和事件相比，action其實還是更加純粹的數據對象，因為事件往往還包含一些方法，比如點擊事件就有preventDefault方法，但是action對象不自帶方法，就是純粹的數據。
+
+作為管理，action對象必須有一個名為type的字段，**代表這個action對象的類型**，為了記錄日誌和debug方便，這個type應該是字符串類型。
+
+定義action通常需要兩個文件，一個定義action的類型，一個定義action的構造函數(也稱為action creator)。分成兩個文件的主要原因是在Store中會根據action類型做不同操作，也就有單獨導入action類型的需要。
+
+*src/ActionType.js*，定義action的類型：
+
+```
+export const INCREMENT = 'increment';
+export const DECREMENT = 'decrement';
+```
+
+現在我們在*src/Actions.js*文件定義action構造函數：
+
+```
+import * as ActionTypes from './ActionType';
+import AppDispatcher from './AppDispatcher';
+
+export const increment = (counterCaption) => {
+    AppDispatcher.dispatch({
+        type: ActionTypes.INCREMENT,
+        counterCaption,
+    });
+};
+
+export const decrement = (counterCaption) => {
+    AppDispatcher.dispatch({
+        type: ActionTypes.DECREMENT,
+        counterCaption,
+    });
+};
+```
+
+雖然出於業界習慣，這個文件被命名為Actions.js，但裡面定義的並不是action對象本身，而是能夠**產生**並**派發action對象**的函數。
+
+*Actions.js*文件中，引入ActionTypes和AppDispatcher，看得出來是要直接使用Dispatcher。
+
+*Actions.js*導出了兩個action構造函數increment和decrement，當這兩個函數被調用的時候，創造了對應的action對象，並立即透過AppDispatcher.dispatch函數派發出去。
+
+#### 3. Store
+
+一個Store也是一個對象，這個對象存儲應用狀態，同時還要接受Dispatcher派發的動作，根據動作來決定是否更新應用狀態。
+
+現在，創造兩個Store，一個是為Counter組件服務的CounterStore，另一個就是為總數服務的SummaryStore。
+
+*src/stores/CounterStore.js*：
+
+```
+import {EventEmitter} from 'events';
+
+const CHANGE_EVENT = 'changed';
+
+const counterValues = {
+    'First': 0,
+    'Second': 10,
+    'Third': 30
+};
+
+const CounterStore = Object.assign({}, EventEmitter.prototype, {
+    getCounterValues: function () {
+        return counterValues;
+    },
+    emitChange: function () {
+        this.emit(CHANGE_EVENT);
+    },
+    addChangeListener: function (callback) {
+        this.on(CHANGE_EVENT, callback);
+    },
+    removeChangeListener: function (callback) {
+        this.removeListener(CHANGE_EVENT, callback);
+    }
+});
+```
+
+當Store狀態發生變化的時候，需要通知應用的其他部分做必要的響應。在我們應用中，做出響應的部分當然就是View部分，但是我們不應該硬編碼這種關係，應該用消息的方式建立Store和View的聯繫。這就是為什麼我們讓CounterStore擴展了EventEmitter.proptotype，等於讓CounterStore成了EventEmitter對象。一個EventEmitter實例對象支持下列相關函數：
+
+- emit，可以廣播一個特定事件，第一個參數是字符串類型的事件名稱。
+- on，可以增加一個掛在這個EventEmitter對象特定事件上的處理函數，第一個參數是事件名稱，第二個參數是處理函數。
+- removeListener，和on函數做的事情相反，刪除掛在這個EventEmitter對象特定事件上的處理函數，和on函數一樣，第一個參數是事件名稱，第二個參數是處理函數。要注意，如果要調用removeListener函數，就一定要保留對處理函數的引用。
+
+對於CounterStore對象，emitChange、addChangeListener和removeChangeListener函數就是利用EventEmitter上述的三個函數完成對CounterStore狀態更新的廣播、添加監聽函數和刪除監聽函數等操作。
+
+getCounterValues函數用於讓應用中其他模組可以讀取當前的計數值，當前計數值存儲在文件模組級的變量counterValues中。
+
+>Top：寫代碼要注意，不應該去修改透過Store得到的數據(Immutable)。
+
+上面實現的Store只有註冊到Dispatcher實例上才能發揮作用，所以還需要添加下列代碼：
+
+```
+CounterStore.dispatchToken = AppDispatcher.register((action) => {
+    if (action.type === ActionTypes.INCREMENT) {
+        counterValues[action.counterCaption]++;
+        CounterStore.emitChange();
+    } else if (action.type === ActionTypes.DECREMENT) {
+        counterValues[action.counterCaption]--;
+        CounterStore.emitChange();
+    }
+});
+```
+
+這是最重要的步驟，要把CounterStore註冊到全局唯一的Dispatcher上去。Dispatcher有一個函數叫register，接受一個回調函數作為參數，返回值是一個token，這個token可以用於Store之間的同步，目前在CounterStore還用不上，稍後SummaryStore會用到。
+
+來看看register接受的這個回調函數參數，這是Flux流程中最核心的部分，當透過register函數把一個回調函數註冊到Dispatcher之後，所有派發給Dispatcher的action對象，都會傳遞到這個回調函數中來。
+
+回調函數要做的，就是根據action對象來決定如何更新自己的狀態。
+
+無論加一或減一，最後都要調用CounterStore.emitChange函數，這讓調用者透過CounterStore.addChangeListener關注了CounterStore的狀態變化，這個emitChange函數調用就會引發監聽函數的執行。
+
+再來看所有計數器計數值的總和Store，*src/stores/SummaryStore.js*：
+
+SummaryStore與CounterStore完全重複，不同點是對獲取狀態函數的定義。
+
+```
+import CounterStore from './CounterStore';
+import {EventEmitter} from 'events';
+
+function computeSummary(counterValues) {
+    return Object.keys(counterValues).reduce((res, prop) => res += counterValues[prop], 0);
+}
+
+const SummaryStore = Object.assign({}, EventEmitter.prototype, {
+    getSummary: function () {
+        return computeSummary(CounterStore.getCounterValues());
+    }
+});
+```
+
+SummaryStore.getSummary是實時讀取CounterStore.getCounterValues來計算總和返回給調用者。可見，雖然名為Store，但並不表示一個Store必須要存儲什麼東西，Store只是提供**獲取數據**的方法。
+
+SummaryStore在Dispatcher上註冊的回調函數：
+
+```
+SummaryStore.dispatchToken = AppDispatcher.register((action) => {
+    if (action.type === ActionTypes.INCREMENT || action.type === ActionTypes.DECREMENT) {
+        AppDispatcher.waitFor([CounterStore.dispatchToken]);
+        SummaryStore.emitChange();
+    }
+});
+```
+
+在這裡使用了waitFor函數，這個函數解決了下面描述的問題。
+
+既然一個action對象會被派發給回調函數，這就產生一個問題，到底是按照什麼順序調用各個回調函數呢？
+
+即使Flux按照register調用的順序去調用回調函數，我們也無法把握各個Store哪個先裝載從而調用register函數。所以可認為Dispatcher調用回調函數的順序是完全無法預期的。
+
+設想一下，當INCREMENT類型的動作配派發，如果先調用SummaryStore的回調函數，這函數立即調用emitChange通知監聽者，監聽者則會立即調用SummaryStore.getSummary獲取結果，然後才去調用CounterStore的回調函數來加一，這樣SummaryStore.getSummary就是錯誤值了。
+
+怎麼解決這個問題？這就要靠Dispatcher的waitFor函數了。在SummaryStore的回調函數中，之前在CounterStore註冊的回調函數時保存下來的dispatchToken終於派上用場。
+
+Dispatcher的waitFor可以接受一個數組作為參數，數組的每個元素都是dispatcher.register返回的dispatchToken。這個函數告訴Dispatcher，當前的處理必須暫停，直到dispatchToken代表的那些回調函數執行結束才能繼續。
+
+調用waitFor，把控制權交給Dispatcher，讓Dispatcher檢查一下dispatchToken代表的回調函數有沒有被執行，有就繼續，沒有就調用dispatchToken代表的回調函數之後waitFor才返回。
+
+注意一個事實，Dispatcher的register函數，只提供註冊一個回調函數的功能，卻不能讓調用者在register時選擇只監聽某些action，換句話說，每個register的調用者只能這樣請求：“當有任何動作被派發時，請調用我。”不能夠這樣請求：“當這種類型還有那種類型的動作被派發的時候，請調用我”。
+
+當一個動作被派發的時候，Dispatcher就是簡單地將所有註冊的回調函數全都調用一遍，至於這個動作是不是對方關心的，Flux的Dispatcher不關心，要求每個回調函數去鑑別。
+
+#### 4. View
+
+Flux框架中，View並不是說必須要使用React，View本身是一個獨立的部分，可以用任何一種UI庫來實現。
+
+存在於Flux框架中的React組件需要實現以下幾個功能：
+
+- 創建時要讀取Store上狀態來初始化組件內部狀態。
+- 當Store上狀態發生變化時，組件要立刻同步更新內部狀態保持一致。
+- View如果要改變Store狀態，**必須而且只能**派發action。
+
+*src/views/ControlPanel.js*：
+
+```
+import React, {Component} from 'react';
+
+import Counter from './Counter';
+import Summary from './Summary';
+
+
+const style = {
+    margin: '20px'
+};
+
+class ControlPanel extends Component {
+    render() {
+        return (
+            <div style={style}>
+                <Counter caption="First"/>
+                <Counter caption="Second"/>
+                <Counter caption="Third"/>
+                <hr/>
+                <Summary/>
+            </div>
+        );
+    }
+}
+
+export default ControlPanel;
+```
+
+接著看*src/views/Counter.js*：
+
+```
+import React, {Component} from 'react';
+import CounterStore from "../stores/CounterStore";
+
+class Counter extends Component {
+
+    constructor(props) {
+        super(props);
+
+        this.state = {
+            count: CounterStore.getCounterValues()[props.caption],
+        };
+    }
+
+    onChange = () => {
+
+    };
+
+    onClickIncrementButton = () => {
+
+    };
+
+    onClickDecrementButton = () => {
+
+    };
+
+}
+```
+
+Counter組件的state應該成為Flux Store上狀態的一個同步鏡像，為了保持兩者一致，除了在構造函數中的初始化之外，在之後當CounterStore上狀態變化時，Counter組件也要對應變化。
+
+```
+componentDidMount() {
+    CounterStore.addChangeListener(this.onChange);
+}
+
+componentWillUnmount() {
+    CounterStore.removeChangeListener(this.onChange);
+}
+
+onChange = () => {
+    const newCount = CounterStore.getCounterValues()[this.props.caption];
+    this.setState({
+        count: newCount,
+    });
+};
+```
+
+接下來看React組件如何派發action：
+
+```
+onClickIncrementButton = () => {
+    Actions.increment(this.props.caption);
+};
+
+onClickDecrementButton = () => {
+    Actions.decrement(this.props.caption);
+};
+
+render() {
+    const {caption} = this.props;
+    return (
+        <div>
+            <button style={buttonStyle} onClick={this.onClickIncrementButton}>+</button>
+            <button style={buttonStyle} onClick={this.onClickDecrementButton}>-</button>
+            <span>{caption} count: {this.state.count}</span>
+        </div>
+    );
+}
+```
+
+不免於CounterStore的getCounterValues函數叫用兩次：一個在構造函數、一個在CounterStore狀態變化的onChange函數。
+
+不使用組件的狀態，就可逃出在代碼中使用Store兩次的宿命，也就是“無狀態”組件。
+
+*src/views/Summary.js*：
+
+```
+
+```
