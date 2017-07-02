@@ -305,6 +305,8 @@ class Counter extends Component {
     };
 
 }
+
+exports default Counter;
 ```
 
 Counter組件的state應該成為Flux Store上狀態的一個同步鏡像，為了保持兩者一致，除了在構造函數中的初始化之外，在之後當CounterStore上狀態變化時，Counter組件也要對應變化。
@@ -356,5 +358,56 @@ render() {
 *src/views/Summary.js*：
 
 ```
+import React, {Component} from 'react';
+
+import SummaryStore from '../stores/SummaryStore';
+
+class Summary extends Component {
+
+    constructor(props) {
+        super(props);
+
+        this.state = {
+            sum: SummaryStore.getSummary(),
+        }
+    }
+
+    componentDidMount() {
+        SummaryStore.addChangeListener(this.onUpdate);
+    }
+
+    componentWillUnmount() {
+        SummaryStore.removeChangeListener(this.onUpdate);
+    }
+
+    onUpdate = () => {
+        this.setState({
+            sum: SummaryStore.getSummary(),
+        });
+    };
+
+    render(){
+        return (
+            <div>Total Count: {this.state.sum}</div>
+        );
+    }
+
+}
+
+export default Summary;
+```
+
+*index.js*：
 
 ```
+import React from 'react';
+import ReactDOM from 'react-dom';
+import ControlPanel from './views/ControlPanel';
+import './index.css';
+import registerServiceWorker from './registerServiceWorker';
+
+ReactDOM.render(<ControlPanel/>, document.getElementById('root'));
+registerServiceWorker();
+```
+
+### Flux的優勢
