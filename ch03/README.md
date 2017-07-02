@@ -805,3 +805,177 @@ class Summary extends Component {
 export default Summary;
 ```
 
+### 容器組件和傻瓜組件
+
+在Redux框架下，一個React組件基本上要完成以下兩個功能：
+
+- 和Redux Store打交道，讀取Store的狀態，用於初始化組件的狀態，同時還要監聽Store的狀態改變；當Store狀態發生變化時，需要更新組件狀態，從而驅動組件重新渲染；當需要更新Store狀態時，就要派發action對象；
+- 根據當前props和state，渲染出用戶介面
+
+如果React組件都是要包辦上面說的兩個任務，似乎做的事情也的確稍微多了一點。可拆分為兩個組件，分別承擔一個任務，然後把兩個組件嵌套起來，完成原本一個組件完成的所有任務。
+
+這樣的關係，兩個組件是父子組件的關係。業界對這樣的拆分有多種叫法，承擔第一個任務的組件，也就是**負責和Redux Store打交道的組件**，屬於外層，所以稱為**容器組件**(Container Component)；對於承擔第二個任務的組件，也就是**只專心負責渲染介面的組件**，屬於內層，叫做**展示組件**(Presentational Component)。
+
+外層容器組件又叫聰明組件，內層展示組件又叫傻瓜組件。
+
+傻瓜組件就是一個純函數，根據props產生結果。
+
+容器組件，只是做的事情涉及一些狀態轉換，做的事情其實都有套路，我們很容易就能抽取共同之處，複用代碼完成任務，並不需要開發者及其聰明才能掌握。
+
+把組件拆分為容器組件和傻瓜組件，不只是功能分離，還有一個比較大的變化，那就是傻瓜組件不需要有狀態了。
+
+實際上，讓傻瓜組件無狀態，是我們主要拆分的目的之一，傻瓜組件只需要根據props來渲染結果，不需要state。
+
+那麼狀態哪裡去了？全都交給容器組件去打點，這是它的責任。容器組件如何把狀態傳遞給傻瓜組件？透過props。
+
+感受一下容器組件和傻瓜組件如何協同運作：
+
+*src/views/Counter.js*中定義兩個組件，傻瓜組件很簡單，只有一個render函數：
+
+```
+class Counter extends Component {
+    render() {
+        const {caption, onIncrement, onDecrement, value} = this.props;
+
+        return (
+            <div>
+                <button style={buttonStyle} onClick={onIncrement}>+</button>
+                <button style={buttonStyle} onClick={onDecrement}>-</button>
+                <span>{caption} count: {value}</span>
+            </div>
+        );
+    }
+}
+```
+
+所有數據都來自props，這種組件叫做“無狀態”組件。
+
+CounterContainer：
+
+```
+class CounterContainer extends Component {
+    constructor(props) {
+        super(props);
+
+        this.state = this.getOwnState();
+    }
+
+    getOwnState = () => {
+        return {
+            value: store.getState()[this.props.caption]
+        };
+    };
+
+    onIncrement = () => {
+        store.dispatch(Actions.increment(this.props.caption));
+    };
+
+    onDecrement = () => {
+        store.dispatch(Actions.decrement(this.props.caption));
+    };
+
+    onChange = () => {
+        this.setState(this.getOwnState());
+    };
+
+    shouldComponentUpdate(nextProps, nextState) {
+        return nextProps.caption !== this.props.caption || nextState.value !== this.state.value;
+    }
+
+    componentDidMount() {
+        store.subscribe(this.onChange);
+    }
+
+    componentWillUnmount() {
+        store.unsubscribe(this.onChange);
+    }
+
+    render() {
+        return (
+            <Counter caption={this.props.caption}
+                     onIncrement={this.onIncrement}
+                     onDecrement={this.onDecrement}
+                     value={this.state.value}/>
+        );
+    }
+}
+
+export default CounterContainer;
+```
+
+React支持只用一個函數代表無狀態組件，所以Counter組件可以進一步簡化：
+
+```
+function Counter({caption, onIncrement, onDecrement, value}) {
+    return (
+        <div>
+            <button style={buttonStyle} onClick={onIncrement}>+</button>
+            <button style={buttonStyle} onClick={onDecrement}>-</button>
+            <span>{caption} count: {value}</span>
+        </div>
+    );
+}
+```
+
+因為沒有狀態，不需要用對象表示，所以連類都不需要了。對於只有一個render方法的組件，縮略為一個函數足矣。
+
+*src/views/Summary.js*：
+
+```
+import React, {Component, PropTypes} from 'react';
+
+import store from '../Store';
+
+function Summary({sum}) {
+    return (
+        <div>Total Count: {sum}</div>
+    );
+}
+
+Summary.propTypes = {
+    sum: PropTypes.number.isRequired,
+};
+
+class SummaryContainer extends Component {
+
+    constructor(props) {
+        super(props);
+
+        this.state = this.getOwnState();
+    }
+
+    onChange = () => {
+        this.setState(this.getOwnState());
+    };
+
+
+    getOwnState = () => {
+        const state = store.getState();
+        return {sum: Object.keys(state).reduce((res, key) => res += state[key], 0)};
+    };
+
+    shouldComponentUpdate(nextProps, nextState) {
+        return nextState.sum !== this.state.sum;
+    }
+
+    componentDidMount() {
+        store.subscribe(this.onChange);
+    }
+
+    componentWillUnmount() {
+        store.unsubscribe(this.onChange);
+    }
+
+    render() {
+        return (
+            <Summary sum={this.state.sum}/>
+        )
+    }
+
+}
+
+export default SummaryContainer;
+```
+
+我們看到CounterSummary和SummaryContainer代碼有很多重複之處，既然都是相同套論，完全可以抽離出來，之後會應用react-redux來減少代碼重複。
+
