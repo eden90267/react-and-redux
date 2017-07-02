@@ -4,7 +4,7 @@
 import AppDispatcher from '../AppDispatcher';
 import {EventEmitter} from 'events';
 import CounterStore from './CounterStore';
-import * as ActionTypes from '../ActionType';
+import * as ActionTypes from '../ActionTypes';
 
 const CHANGE_EVENT = 'changed';
 

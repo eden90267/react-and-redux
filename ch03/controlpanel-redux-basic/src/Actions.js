@@ -1,19 +1,19 @@
 /**
- * Created by eden90267 on 2017/7/1.
+ * Created by eden90267 on 2017/7/2.
  */
 import * as ActionTypes from './ActionTypes';
-import AppDispatcher from './AppDispatcher';
 
 export const increment = (counterCaption) => {
-    AppDispatcher.dispatch({
+    return {
         type: ActionTypes.INCREMENT,
-        counterCaption,
-    });
+        counterCaption
+    };
 };
 
+
 export const decrement = (counterCaption) => {
-    AppDispatcher.dispatch({
+    return {
         type: ActionTypes.DECREMENT,
-        counterCaption,
-    });
+        counterCaption
+    };
 };

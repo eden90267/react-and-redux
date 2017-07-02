@@ -565,5 +565,243 @@ React與Redux事實上是兩個獨立的產品。
 *src/ActionTypes.js*：
 
 ```
+export const INCREMENT = 'increment';
+export const DECREMENT = 'decrement';
+```
+
+*src/Actions.js*就不大一樣了：
 
 ```
+import * as ActionTypes from './ActionTypes';
+
+export const increment = (counterCaption) => {
+    return {
+        type: ActionTypes.INCREMENT,
+        counterCaption
+    };
+};
+
+
+export const decrement = (counterCaption) => {
+    return {
+        type: ActionTypes.DECREMENT,
+        counterCaption
+    };
+};
+```
+
+Redux中每個action構造函數都返回一個action對象。
+
+在Redux中，很多函數都是這樣不做什麼產生副作用的動作，而是返回一個對象，把如何處理這個對象的工作交給調用者。
+
+在Flux中我們要用到一個Dispatcher對象，但在Redux中，就沒有Dispatcher這個對象了。Dispatcher存在的作用就是把一個action對象分發給多個註冊了的Store，既然Redux讓全局只有一個store，那麼再創造一個Dispatcher也的確意義不大。所以，Redux中“分發”這一個功能，從一個Dispatcher對象簡化為Store對象上的一個函數dispatch。
+
+*src/Store.js*：
+
+```
+import {createStore} from 'redux';
+import reducer from './Reducer.js';
+
+const initValue = {
+    'First': 0,
+    'Second': 10,
+    'Third': 20,
+};
+
+const store = createStore(reducer, initValue);
+
+export default store;
+```
+
+在這裡，我們接觸到了Redux庫提供的createStore函數，這個函數第一個參數代表更新狀態的reducer，第二個參數是狀態的初始值，第三個參數可選，代表Store Enhancer，在這簡單例子用不上。
+
+確定Store狀態，是設計好Redux應用的關鍵。沒有Summary狀態，是因為沒必要製造冗余數據存儲。
+
+*src/Reducer.js*：
+
+```
+import * as ActionTypes from './ActionTypes';
+
+export default (state, action) => {
+    const {counterCaption} = action;
+
+    switch(action.type) {
+        case ActionTypes.INCREMENT:
+            return {...state, [counterCaption]: state[counterCaption] + 1};
+        case ActionTypes.DECREMENT:
+            return {...state, [counterCaption]: state[counterCaption] - 1};
+        default:
+            return state;
+    }
+}
+```
+
+Redux中把存儲state的工作抽取出來交給Redux框架本身，讓reducer只用關心如何更新state，而不要管state怎麼存。
+
+```
+return {...state, [counterCaption]: state[counterCaption] + 1};
+```
+
+上面代碼等同下面的代碼：
+
+```
+const newState = Object.assign({}, state);
+
+newState[counterCaption]++;
+
+return newState;
+```
+
+和flux很不一樣的是，在reducer中，絕對不能去修改參數中的state，因為reducer是純函數，純函數不應該產生任何副作用。
+
+```
+export default (state, action) => {
+    const {counterCaption} = action;
+    switch(action.type) {
+        case ActionTypes.INCREMENT:
+            state[counterCaption]++;
+        case ActionTypes.DECREMENT:
+            state[counterCaption]--;
+    }
+    return state;
+}
+```
+
+接下來，我們看View部分
+
+*src/views/ControlPanel.js*：
+
+```
+import React, {Component} from 'react';
+
+import Counter from './Counter';
+import Summary from './Summary';
+
+const style = {
+    margin: '20px'
+};
+
+class ControlPanel extends Component {
+    render() {
+        return (
+            <div style={style}>
+                <Counter caption="First"/>
+                <Counter caption="Second"/>
+                <Counter caption="Third"/>
+                <hr/>
+                <Summary/>
+            </div>
+        );
+    }
+}
+```
+
+*src/views/Counter.js*：
+
+```
+import React, {Component} from 'react';
+
+import store from '../Store';
+
+const buttonStyle = {
+    margin: '10px'
+};
+
+class Counter extends Component {
+
+    constructor(props) {
+        super(props);
+
+        this.state = this.getOwnState();
+    }
+
+    getOwnState = () => {
+        return {
+            value: store.getState()[this.props.caption]
+        };
+    }
+}
+```
+
+和Flux例子一樣，在這個視圖文件中我們要引入Store，只不過這次我們引入的是唯一的Redux Store，透過store.getState()能夠獲得store上存儲的所有狀態，不過每個組件往往只需要使用返回狀態的一部分數據。
+
+和Flux實現的例子一樣，僅僅在構造組件時根據store來初始化this.state還不夠，要保持store上狀態和this.state的同步：
+
+```
+onIncrement = () => {
+    store.dispatch(Actions.increment(this.props.caption));
+};
+
+onDecrement = () => {
+    store.dispatch(Actions.decrement(this.props.caption));
+};
+```
+
+再來是render函數：
+
+```
+render() {
+    const {value} = this.state;
+    const {caption} = this.props;
+
+    return (
+        <div>
+            <button style={buttonStyle} onClick={this.onIncrement}>+</button>
+            <button style={buttonStyle} onClick={this.onDecrement}>-</button>
+            <span>{caption} count: {value}</span>
+        </div>
+    );
+}
+```
+
+注意在Redux中，action構造函數只負責創建對象，要派發action就需要調用store.dispatch函數。
+
+*src/views/Summary.js*：
+
+```
+import React, {Component} from 'react';
+
+import store from '../Store';
+
+class Summary extends Component {
+
+    constructor(props) {
+        super(props);
+
+        this.state = this.getOwnState();
+    }
+
+    onChange = () => {
+        this.setState(this.getOwnState());
+    };
+
+
+    getOwnState = () => {
+        const state = store.getState();
+        return {sum: Object.keys(state).reduce((res, key) => res += state[key], 0)};
+    };
+
+    shouldComponentUpdate(nextProps, nextState) {
+        return nextState.sum !== this.state.sum;
+    }
+
+    componentDidMount() {
+        store.subscribe(this.onChange);
+    }
+
+    componentWillUnmount() {
+        store.unsubscribe(this.onChange);
+    }
+
+    render() {
+        const {sum} = this.state;
+        return (
+            <div>Total Count: {sum}</div>
+        );
+    }
+
+}
+
+export default Summary;
+```
+
