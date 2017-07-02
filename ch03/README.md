@@ -411,3 +411,159 @@ registerServiceWorker();
 ```
 
 ### Flux的優勢
+
+回顧一下完全只使用React實現的版本，應用的狀態數據只存在於React組件之中，每個組件都要維護驅動自己渲染的狀態數據，單個組件的狀態還好維護，但如果多個組件狀態還有關聯，那就麻煩了。各自Counter、Summary維護自身狀態，那同步就成了問題。React只提供了props方法讓組件之間通信，若組件關係稍微複雜點，這種方式就顯得很笨拙。
+
+Flux的架構下，應用的狀態放在Store中，React只是扮演View的作用，被動根據Store的狀態來渲染。在上面例子中，React組件依然有自己的狀態，但是已經完全論為Store組件的一個映射，而不是主動變化的數據。
+
+在完全只用React實現的版本裡，用戶的交互作用，比如點擊“+”按鈕，引發的時間處理函數直接透過this.setState改變組件的狀態。在Flux的實現版本裡，用戶操作引發的是一個“動作”的派發，這個派發的動作會發送給所有的Store對象，引起Store對象的狀態改變，而不是直接引發組件的狀態改變。因為組件的狀態是Store狀態的映射，所以改變了Store對象也就觸發了React組件對象的狀態改變，從而引發了介面的重新渲染。
+
+Flux帶來了哪些好處？ 最重要的就是“單向數據流”的管理方式。
+
+在Flux理念裡，如果要改變介面，必須改變Store中的狀態，如果要改變Store的狀態，必須派發一個action對象，這就是規矩。這個規矩下，想要追朔一個應用的邏輯就變得非常容易。
+
+MVC最大問題就是無法禁絕View和Model之間的直接對話。在Flux中，Store只有get方法，沒有set方法，根本不可能去修改內部狀態，View只能透過get方法獲取Store的狀態，無法直接去修改狀態，如果View想要修改Store狀態，只有派發一個action對象給Dispatcher。
+
+這是一個很好的“限制”，禁絕了數據流混亂的可能。
+
+簡單說來，在Flux的體系下，驅動介面改變始於一個動作的派發，別無他法。
+
+### Flux的不足
+
+#### 1. Store之間的依賴關係
+
+在Flux體系中，如果兩個Store之間有邏輯依賴關係，就必須用上Dispatcher的waitFor函數。靠的是register函數的返回值dispatchToken，而dispatchToken的產生，當然是依賴的組件控制的。
+
+換句話說，要這樣設計：
+
+- 依賴的組件必須要把註冊回調函數產生的dispatchToken公之於眾。
+- 組件必須要在代碼裡建立對依賴組件的dispatchToken的依賴。
+
+雖然Flux這個設計的確解決了Store之間的依賴關係，但是，這樣明顯的模組之間的依賴，看了還是讓人感覺不舒服，畢竟，最好的依賴管理是不讓依賴產生。
+
+#### 2. 難以進行Server端渲染
+
+Server端渲染，輸出不是一個DOM樹，而是一個字符串，準確來說就是一個全是HTML的字符串。
+
+在Flux體系中，有一個全局的，然後每一個Store都是一個全局唯一的對象，這對瀏覽器端應用完全沒問題，但放在Server端，就會有大問題。
+
+和一個瀏覽器網頁只服務於一個用戶不同，在server端要同時接受很多用戶的請求，如果說Store都是全局唯一的對象，那不同請求的狀態肯定就亂套了。
+
+Flux作Server端渲染很困難，Facebook也說得很清楚，Flux不是設計用作Server端渲染的，他們也重來沒有嘗試過把Flux應用於Server端。
+
+#### 3. Store混雜了邏輯和狀態
+
+Store封裝了數據和處理數據的邏輯，用面向對象的思維來看，這是一件好事，畢竟對象就是這樣定義。但是，當我們要動態替換一個Store的邏輯時，只能把這個Store整體替換掉，也就無法保持Store中存儲的狀態。
+
+開發模式或生產環境下，都有可能面臨有bug要替換Store邏輯或根據用戶屬性動態加載不同的模組，而且希望狀態可保留，且網頁不reload，這就是熱加載(Hot Load)。
+
+“偷梁換柱”的替換應用邏輯是不可能做到的。實際上，Redux就能做到。
+
+## Redux
+
+Redux是Flux的一種實現，除了Redux之外，還有很多實現Flux的框架，比如Reflux、Fluxible等。而Redux獲得的關注最多，因為Redux有很多其他框架無法比擬的優勢。
+
+### Redux的基本原則
+
+2013年問世的Flux飽受爭議，而2015年提出了在Flux基礎上的改進框架Redux，則是一鳴驚人，在所有Flux的變體中算是最受關注的框架。
+
+Flux的基本原則是“單向數據流”，Redux在此基礎上強調三個基本原則：
+
+- 唯一數據源
+- 保持狀態只讀
+- 數據改變只能透過純函數完成
+
+#### 1. 唯一數據源
+
+唯一數據源指的是應用的狀態數據只存儲在唯一的一個Store上。
+
+在Flux中，應用可以擁有多個Store，往往根據功能把應用的狀態數據劃分給若干個Store分別存儲管理。
+
+如果狀態數據分散在多個Store中，容易造成數據冗餘，這樣數據一致性方面就會出問題。雖然利用Dispatcher的waitFor方法可以保證多個Store之間的更新順序，但是這又產生了不同Store之間的顯示依賴關係，這種依賴關係的存在增加了應用的複雜度，容易帶來新的問題。
+
+Redux解決辦法是：整個應用只保持一個Store，所有組件的數據源就是這個Store上的狀態。(但不阻止多個Store，不過不會有任何好處)。
+
+這個唯一Store上的狀態，是一個樹型的對象，每個組件往往只是用樹型對象上一部分的數據，而如何設計Store上狀態的結構，就是Redux應用的核心問題。
+
+#### 2. 保持狀態只讀
+
+就是說不能去直接修改狀態，要修改Store的狀態，必須要透過派發一個action對象完成，和Flux的要求沒區別。
+
+但我們說過驅動用戶介面更改的是狀態，如果狀態都是只讀的不能修改，怎麼引起用戶介面的變化呢？
+
+當然，要驅動用戶介面渲染，就要改變應用的狀態，但是改變狀態的方法不是去修改狀態上值，而是**創建一個新的狀態對象返回給Redux**，**由Redux完成新的狀態的組裝**。
+
+這就直接引出了第三個基本原則。
+
+#### 3. 數據改變只能透過純函數完成
+
+這裡所說的純函數就是Reducer，Redux這個名字前三個字母Red代表就是Reducer。以作者Dan abramov的說法，**Redux名字的含義是Reducer+Flux**。
+
+Reducer是一個電腦科學中的通用概念，很多語言和框架都有對Reducer函數的支持。以JavaScript為例，陣列類型就有reduce函數，接受的參數就是一個reducer，reducer做的事情就是把陣列的所有元素依次做“規約”，對每個元素都調用一次參數reducer，透過reducer函數完成規約所有元素的功能。
+
+```
+[1,2,3,4].reduce(function reducer(accumulation, item) {
+    return accumulation + item;
+}, 0);
+```
+
+reducer接受兩個參數，第一個參數是上一次規約的結果，第二個參數是這一次規約的元素，函數體就是返回兩者之和，所以這個規約的結果就是所有元素之和。
+
+在Redux中，每個reducer的函數簽名如下所示：
+
+```
+reduce(state, action)
+```
+
+reducer要做的事情，就是根據state和action的值產生一個新的對象返回，注意reducer必須是純函數，返回結果必須完全由參數決定，而且不產生任何副作用，也不能修改參數state和action的對象。
+
+回顧一下Flux的Store是如何處理函數的：
+
+```
+CounterStore.dispatchToken = AppDispatcher.register((action) => {
+    if (action.type === ActionTypes.INCREMENT) {
+        counterValues[action.counterCaption]++;
+        CounterStore.emitChange();
+    } else if (action.type === ActionTypes.DECREMENT) {
+        counterValues[action.counterCaption]--;
+        CounterStore.emitChange();
+    }
+});
+```
+
+Flux更新狀態的函數只有一個參數action，因為狀態是由Store直接管理的，所以處理函數中會看到代碼直接更新state；在Redux中，一個實現同樣功能的reducer代碼如下：
+
+```
+function reducer(state, action) {
+  const {counterCaption} = action;
+  
+  switch(action.type) {
+    case ActionTypes.INCREMENT:
+      return {...state, [counterCaption]: state[counterCaption] + 1};
+    case ActionTypes.DECREMENT:
+      return {...state, [counterCaption]: state[cunterCaption] - 1};
+    default:
+      return state;
+  }
+}
+```
+
+可以看到reducer函數不光接受action為參數，還接受state為參數。也就是說**Reducer只負責計算狀態**，卻**不負責存儲狀態**。
+
+從Redux基本原則來看，Redux並沒有賦予我們強大的功能，反而是給開發者增加了很多限制，開發者喪失了想怎麼寫就怎麼寫的靈活度。
+
+>“如果你願意限制做事方式的靈活度，你幾乎總會發現可以做得更好。”  —— John Carmark
+
+在電腦編程的世界裡，完成任何一個任務，可能都有一百種以上的方法，但是無節制的靈活度反而讓軟件難以維護，**增加限制是提高軟件質量的法門**。
+
+### Redux實例
+
+React與Redux事實上是兩個獨立的產品。
+
+有所謂的react-redux庫可使用，但這裡先以最簡單的Redux使用方法開始。
+
+*src/ActionTypes.js*：
+
+```
+
+```
