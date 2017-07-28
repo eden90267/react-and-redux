@@ -309,13 +309,13 @@ DOM樹是對HTML的抽象，那Virtual DOM就是對DOM樹的抽象。Virtual DOM
 
 以ClickCounter為例，React透過Virtual DOM對比發現其實只是id為clickCount的span元素中內容從0變成1而已：
 
-```
+```html
 <span id="clickCount">{this.state.count}</span>
 ```
 
 於是執行類似下面的語句，就完成任務：
 
-```
+```js
 document.getElementById('clickCount').innerHTML = '1';
 ```
 
