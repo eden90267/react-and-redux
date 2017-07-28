@@ -2,12 +2,12 @@
 
 高質量組件：
 
-- 不要只滿足於編寫出可運行的帶碼，而要了解代碼背後的工作原理
+- 不要只滿足於編寫出可運行的代碼，而要了解代碼背後的工作原理
 - 不要只滿足於自己編寫的程序能夠執行，還要讓自己的代碼可讀而且易於維護
 
 ## 易於維護組件的設計要素
 
-就像一個人最好只專注做一件事情一樣，組件也應該盡量保持只做一件事。當開發者發現一個組件功能太多，就要考慮拆分這些組件，用多個小組件來代替。每個小組建只專注實現單個功能，但是將這些功能組合起來，也能滿足複雜的實際需求。
+就像一個人最好只專注做一件事情一樣，組件也應該盡量保持只做一件事。當開發者發現一個組件功能太多，就要考慮拆分這些組件，用多個小組件來代替。每個小組件只專注實現單個功能，但是將這些功能組合起來，也能滿足複雜的實際需求。
 
 這就是“分而治之”的策略。但不要濫用，只有必要的時候才去拆分組件，否則得不償失。
 
@@ -31,7 +31,7 @@
 
 React組件的數據分成兩種，prop和state，無論prop或state的改變，都可能引發組件的重新渲染，那麼，設計一個組件的時候，什麼時候該選prop什麼時候該選state?原則很簡單，prop是組件的對外接口，state是組件的內部狀態，對外用prop，內部用state。
 
-演示屬性的使用，建構兩個組件，Counter組件和ControlPanel組件，ControlPanel是父組件，包含若干個Counter組件。可看到三個Counter組建有不同的初始計數值，點擊網頁中的“+”、"-"按鈕可看到對應行的技術增加或減少。
+演示屬性的使用，建構兩個組件，Counter組件和ControlPanel組件，ControlPanel是父組件，包含若干個Counter組件。可看到三個Counter組件有不同的初始計數值，點擊網頁中的"+"、"-"按鈕可看到對應行的計數增加或減少。
 
 ### React的prop
 
@@ -41,20 +41,20 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
 
 1. **給prop賦值**
 
-    ```
+    ```js
     <SampleButton
       id="sample" borderWidth={2} onClick={onButtonClick} style={{color: "red"}} />
     ```
     
     看起來，React組件的prop很像是HTML元素的屬性，不過，HTML組件屬性的值都是字符串類型，即使是內嵌JavaScript，也依然是字符串形式表示代碼。React組件的prop所能支持的類型則豐富的多，除了字符串，可以是任何一種JavaScript語言支持的數據類型。
     
-    在prop類型不是字符串類型，JSX必須用花括號{}把prop值包住，所以style有兩個花括號，外層花刮號代表JSX的語法，內層的花瓜號代表這是一個對象常量。
+   在prop類型不是字符串類型，JSX必須用花括號{}把prop值包住，所以style有兩個花括號，外層花括號代表JSX的語法，內層的花括號代表這是一個對象常量。
     
     外部世界傳遞一些數據給React，最直接方式就是用prop；同樣，React組件要反饋數據給外部世界，也可用prop，因為prop不限於純數據，也可是函數，函數類型的prop等於讓父組件交給了子組件一個回調函數，**子組件在恰當的實際調用函數類型的prop**，**可以帶上必要的參數**，**這樣就可以反過來把信息傳遞給外部世界**。
     
     對於Counter組件，父組件ControlPanel就是外部世界，我們看ControlPanel是如何用prop傳遞信息給Counter的，代碼如下：
     
-    ```
+    ```js
     class ControlPanel extends Component {
 	    render() {
 	        return (
@@ -74,18 +74,21 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
 
     看Counter組件內部怎麼接收傳入的prop，首先是構造函數：
     
-    ```
+    ```js
     class Counter extends Component {
 
-    constructor(props){
-        super(props);
-
-        this.onClickIncrementButton = this.onClickIncrementButton.bind(this);
-        this.onClickDecrementButton = this.onClickDecrementButton.bind(this);
-
-        this.state = {
-            count: props.initValue || 0
-        };
+        constructor(props){
+            super(props);
+        
+            this.onClickIncrementButton = this.onClickIncrementButton.bind(this);
+            this.onClickDecrementButton = this.onClickDecrementButton.bind(this);
+        
+            this.state = {
+                count: props.initValue || 0
+            };
+        }
+        
+        // ...
     }
     ```
     
@@ -93,9 +96,9 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
     
     在Counter的構造函數中還給兩位成員函數綁定了當前this的執行環境，因為**ES6方法構造的React組件類並不自動給我們綁定this到當前實例對象**。
     
-    在構造函數的最後，我們可以看到讀取傳入prop的方法，在構造函數中可以透過參數props獲得傳入prop值，其他函數中則可以透過this.props訪問傳入prop的值，比如在Counter組件的render函數中，我們就是透過this.props獲得傳入caption：
+    在構造函數的最後，我們可以看到讀取傳入props的方法，在構造函數中可以透過參數props獲得傳入props值，其他函數中則可以透過this.props訪問傳入props的值，比如在Counter組件的render函數中，我們就是透過this.props獲得傳入caption：
     
-    ```
+    ```js
     render() {
         const {caption} = this.props;
         return (
@@ -119,7 +122,7 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
     
     在ES6方法定義的組件類中，可以透過增加類的propTypes屬性來定義prop規格，這不只是聲明，而且是一種限制，在**運行**時和**靜態代碼檢查**時，都可以根據propTypes判斷外部世界是否正確使用組件的屬性。
     
-    ```
+    ```js
     Counter.propTypes = {
 	    caption: PropTypes.string.isRequired,
 	    initValue: PropTypes.number
@@ -134,7 +137,7 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
     
     首先，定義類的propTypes屬性，無疑要**佔用一些代碼空間**，而且propTypes檢查也需要**消耗CPU計算資源**的。其次，在**產品環境下做propTypes檢查沒有什麼幫助**，畢竟，propTypes產生的錯誤只有開發者看得懂，放在產品環境中，browser console輸出這些錯誤沒什麼意義。
     
-    所以，最好方式是，開發者在代碼中定義propTypes，在開發過程中避免犯錯，但在發布產品代碼時，用一種自動的方式將propTypes去掉，這樣最終部署到產品環境代碼就會更優。現有的babel-react-optimize就具有這個功能，可以透過npm安裝，但應該確保只在發布產品代碼時使用它。
+    所以，最好方式是，開發者在代碼中定義propTypes，在開發過程中避免犯錯，但在發佈產品代碼時，用一種自動的方式將propTypes去掉，這樣最終部署到產品環境代碼就會更優。現有的babel-react-optimize就具有這個功能，可以透過npm安裝，但應該確保只在發佈產品代碼時使用它。
     
 ### React的state
 
@@ -144,11 +147,11 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
 
     通常在組件類的構造函數結尾處初始化state，在Counter構造函數中，透過對this.state的賦值完成了對組件state的初始化。
     
-    ```
+    ```js
     constructor(props){
         super(props);
 
-        ...
+        // ...
 
         this.state = {
             count: props.initValue || 0
@@ -164,7 +167,7 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
     
     我們在constructor放置prop值不存在則給默認初始值，這並不是一件美觀的事情，可使用React的defaultProps功能，讓代碼更加容易讀懂：
     
-    ```
+    ```js
     Counter.defaultProps = {
         initValue: 0
     };
@@ -174,7 +177,7 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
 
     以“+”按鈕的響應函數為例：
 
-    ```
+    ```js
     onClickIncrementButton() {
         this.setState({
             count: this.state.count + 1,
@@ -194,7 +197,7 @@ prop是從外部傳遞給組件的數據，一個React組件透過定義自己�
 
 組件的state就相當於組件的記憶，存在意義就是被修改，每一次透過this.setState函數修改state就改變了組件的狀態，然後透過渲染過程把這種變化體現出來。
 
-但是，組件是絕不應該去修改傳入的props值的，假如服組件包含多個子組件，然後把一個JavaScript對象作為props值傳給這幾個子組件，而某個子組件居然改變了對象的內部值，那麼，接下來其他子組件讀取這個對象會得到什麼值呢？一個子組件去修改props的值，可能會讓程序陷入一團混亂，這就完全違背了React設計的初衷。
+但是，組件是絕不應該去修改傳入的props值的，假如父組件包含多個子組件，然後把一個JavaScript對象作為props值傳給這幾個子組件，而某個子組件居然改變了對象的內部值，那麼，接下來其他子組件讀取這個對象會得到什麼值呢？一個子組件去修改props的值，可能會讓程序陷入一團混亂，這就完全違背了React設計的初衷。
 
 React扮演的角色是render函數的角色，應該是一個**沒有副作用的純函數**。修改props的值，是一個副作用，組件應該避免。
 
@@ -232,14 +235,14 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     
     在ES6語法下，**類的每個成員函數在執行時的this並不是和類實例自動綁定的**。而在構造函數中，this就是當前組件實例，所以，為了方便將來的調用，往往在構造函數中將這個實例的特定函數綁定this為當前實例。
     
-    ```
+    ```js
     this.onClickIncrementButton = this.onClickIncrementButton.bind(this);
     this.onClickDecrementButton = this.onClickDecrementButton.bind(this);
     ```
     
     可用allow func解決：
     
-    ```
+    ```js
     onClickIncrementButton = () => {
         this.setState({
             count: this.state.count + 1,
@@ -259,7 +262,7 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     
     getDefaultProps函數的返回值可以做為props的初始值，和getInitialState一樣，這個方法只有用React.createClass方法創造的組件類才會發生作用。ES6根本不會用到。
     
-    ```
+    ```js
     const Sample = React.createClass({
         getInitialState: function() {
             return {foo: 'bar'};
@@ -270,9 +273,9 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     });
     ```
     
-    ES6的話，在constructor中透過給this.state賦值完全狀態的初始化，透過給**類屬性**(注意是類屬性，不是類的實例對象屬性)defaultProps賦值指定props初始值：
+    ES6的話，在constructor中透過給this.state賦值完全狀態的初始化；透過給**類屬性**(注意是類屬性，不是類的實例對象屬性)defaultProps賦值指定props初始值：
     
-    ```
+    ```js
     class Sample extends React.Component {
         constructor(props) {
             super(props);
