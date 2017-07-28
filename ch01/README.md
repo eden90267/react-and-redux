@@ -18,19 +18,19 @@ React技術依賴一個很廣大的技術棧，比如：
 
 所以Facebook提供了一個快速開發React應用的工具：create-react-app。這工具的主要目的是將開發人員從配置工作中解脫出來，無需過早關注這些技術棧細節，透過創建一個已經完成基本配置的應用，讓開發者快速開始React應用的開發。
 
-```
+```sh
 npm install --global create-react-app
 ```
 
 這樣電腦終究會有create-react-app這樣一個可以執行的命令，這個命令會在當前目錄下創建指定參數名的應用目錄。
 
-```
+```sh
 create-react-app first_react_app
 ```
 
 隨後我們只需要在這個框架的基礎上修改文件就可以開發React應用，避免了大量的手工配置工作：
 
-```
+```sh
 cd first_react_app
 npm start
 ```
@@ -47,7 +47,7 @@ React非常適合構建用戶交互組件。
 
 *ClickCounter.js*：
 
-```
+```js
 import React, {Component} from 'react';
 
 class ClickCounter extends Component {
@@ -77,7 +77,7 @@ export default ClickCounter;
 
 App.js：
 
-```
+```js
 import React from 'react';
 import ReactDOM from 'react-dom';
 import registerServiceWorker from './registerServiceWorker';
@@ -92,13 +92,13 @@ import是ES6語法中導入文件模組的方式。
 
 *ClickCounter.js*，我們從react庫引入了React和Component：
 
-```
+```js
 import React, {Component} from 'react';
 ```
 
 Component作為所有組件的基類，提供了很多組件共有的功能，下面這行代碼，使用ES6語法來創建ClickCounter的組件類，ClickCounter的父類就是Component：
 
-```
+```js
 class ClickCounter extends Component {
 ```
 
@@ -114,7 +114,7 @@ JSX，是JavaScript的語法擴展(eXtension)，讓我們在JavaScript中可以�
 
 但JSX與HTML有其不同之處：
 
-首先，在JSX中使用的“元素”不局限於HTML中的元素，可以是任何一個React組建。
+首先，在JSX中使用的“元素”不局限於HTML中的元素，可以是任何一個React組件。
 
 React判斷一個元素是HTML元素還是React組件的原則就是看第一個字母是否大寫，如果在JSX中我們不用ClickCounter而是用clickCounter，就得不到我們要的結果。
 
@@ -148,7 +148,7 @@ HTML代表內容、CSS代表樣式、JavaScript定義交互行為，這三種文
 
 除了在組件定義交互行為，我們還可以在React組件中定義樣式：
 
-```
+```js
 render() {
     const counterStyle = {
         margin: '16px'
@@ -164,7 +164,7 @@ render() {
 }
 ```
 
-你看，React的組件可以把JavScript、HTML和CSS的功能在一個文件中，**實現真正的組件封裝**。
+你看，React的組件可以把JavaScript、HTML和CSS的功能在一個文件中，**實現真正的組件封裝**。
 
 ## 分解React應用
 
@@ -172,12 +172,12 @@ render() {
 
 *package.json*：
 
-```
+```json
 "scripts": {
-	"start": "react-scripts start",
-	"build": "react-scripts build",
-	"test": "react-scripts test --env=jsdom",
-	"eject": "react-scripts eject"
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test --env=jsdom",
+    "eject": "react-scripts eject"
 }
 ```
 
@@ -195,7 +195,7 @@ test用於單元測試。
 
 完成彈射操作：
 
-```
+```sh
 npm run eject
 ```
 
@@ -203,11 +203,11 @@ npm run eject
 
 當前目錄會增加兩個目錄，一個是script，另一個是config，同時，package.json文件中的scripts部分也發生了變化：
 
-```
+```json
 "scripts": {
-	"start": "node scripts/start.js",
-	"build": "node scripts/build.js",
-	"test": "node scripts/test.js --env=jsdom"
+    "start": "node scripts/start.js",
+    "build": "node scripts/build.js",
+    "test": "node scripts/test.js --env=jsdom"
 },
 ```
 
@@ -215,19 +215,19 @@ npm run eject
 
 在config目錄下的*webpack.config.dev.js*文件，定製的就是npm start所做的構造過程，其中有一段關於babel的定義：
 
-```
+```js
 // Process JS with Babel.
 {
-	test: /\.(js|jsx)$/,
-	include: paths.appSrc,
-	loader: require.resolve('babel-loader'),
-	options: {
-	  
-	  // This is a feature of `babel-loader` for webpack (not Babel itself).
-	  // It enables caching results in ./node_modules/.cache/babel-loader/
-	  // directory for faster rebuilds.
-	  cacheDirectory: true,
-	},
+    test: /\.(js|jsx)$/,
+    include: paths.appSrc,
+    loader: require.resolve('babel-loader'),
+    options: {
+      
+      // This is a feature of `babel-loader` for webpack (not Babel itself).
+      // It enables caching results in ./node_modules/.cache/babel-loader/
+      // directory for faster rebuilds.
+      cacheDirectory: true,
+    },
 },
 ```
 
@@ -241,7 +241,7 @@ npm run eject
 
 假設我們用jQuery來實現ClickCounter的功能，首先我們產生一個網頁的HTML(*index.html*)：
 
-```
+```html
 <!DOCTYPE html>
 <html lang="en">
 <body>
@@ -259,7 +259,7 @@ npm run eject
 
 *clickCounter.js*：
 
-```
+```js
 $(function () {
     $('#clickMe').click(function () {
         var clickCounter = $('#clickCount');
@@ -279,7 +279,7 @@ React開發ClickCounter組件並沒有像jQuery那樣做“選中一些DOM元素
 
 開發者只要著重”我想要顯示什麼“，而不用操心”怎樣去做“。
 
-這種新的思維方式，對於一個簡單的例子也要編寫不少代碼，但是對於一個大型項目，這種方式編寫的代碼會更容易管理，因為整個React應用要做的就是渲染，開發者關注的是渲染什麼樣子，而不用關心如何實現增量渲染。
+這種新的思維方式，對於一個簡單的例子也要編寫不少代碼，但是對於一個大型項目，這種方式編寫的代碼會更容易管理，因為整個React應用要做的就是渲染，**開發者關注的是渲染什麼樣子，而不用關心如何實現增量渲染**。
 
 React的理念，歸結為一個公式，就像下面這樣：
 
