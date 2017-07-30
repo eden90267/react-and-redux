@@ -55,7 +55,7 @@ MVC框架裡，系統能夠提供什麼樣的服務，透過Controller暴露函�
 
 Flux提供了一些輔助工具類和函數，能夠幫助創建Flux應用：
 
-```
+```bash
 npm install --save flux
 ```
 
@@ -65,7 +65,7 @@ npm install --save flux
 
 *src/AppDispatcher.js*：
 
-```
+```js
 import {Dispatcher} from 'flux';
 
 export default new Dispatcher();
@@ -85,14 +85,14 @@ action顧名思義代表一個“動作”，不過這個動作只是一個普�
 
 *src/ActionType.js*，定義action的類型：
 
-```
+```js
 export const INCREMENT = 'increment';
 export const DECREMENT = 'decrement';
 ```
 
 現在我們在*src/Actions.js*文件定義action構造函數：
 
-```
+```js
 import * as ActionTypes from './ActionType';
 import AppDispatcher from './AppDispatcher';
 
@@ -111,7 +111,7 @@ export const decrement = (counterCaption) => {
 };
 ```
 
-雖然出於業界習慣，這個文件被命名為Actions.js，但裡面定義的並不是action對象本身，而是能夠**產生**並**派發action對象**的函數。
+雖然出於業界習慣，這個文件被命名為*Actions.js*，但裡面定義的並不是action對象本身，而是能夠**產生**並**派發action對象**的函數。
 
 *Actions.js*文件中，引入ActionTypes和AppDispatcher，看得出來是要直接使用Dispatcher。
 
@@ -119,13 +119,13 @@ export const decrement = (counterCaption) => {
 
 #### 3. Store
 
-一個Store也是一個對象，這個對象存儲應用狀態，同時還要接受Dispatcher派發的動作，根據動作來決定是否更新應用狀態。
+一個Store也是一個對象，這個對象存儲應用狀態，同時還要接受Dispatcher派發的動作，**根據動作來決定是否更新應用狀態**。
 
 現在，創造兩個Store，一個是為Counter組件服務的CounterStore，另一個就是為總數服務的SummaryStore。
 
 *src/stores/CounterStore.js*：
 
-```
+```js
 import {EventEmitter} from 'events';
 
 const CHANGE_EVENT = 'changed';
@@ -166,7 +166,7 @@ getCounterValues函數用於讓應用中其他模組可以讀取當前的計數�
 
 上面實現的Store只有註冊到Dispatcher實例上才能發揮作用，所以還需要添加下列代碼：
 
-```
+```js
 CounterStore.dispatchToken = AppDispatcher.register((action) => {
     if (action.type === ActionTypes.INCREMENT) {
         counterValues[action.counterCaption]++;
@@ -190,7 +190,7 @@ CounterStore.dispatchToken = AppDispatcher.register((action) => {
 
 SummaryStore與CounterStore完全重複，不同點是對獲取狀態函數的定義。
 
-```
+```js
 import CounterStore from './CounterStore';
 import {EventEmitter} from 'events';
 
@@ -209,7 +209,7 @@ SummaryStore.getSummary是實時讀取CounterStore.getCounterValues來計算總�
 
 SummaryStore在Dispatcher上註冊的回調函數：
 
-```
+```js
 SummaryStore.dispatchToken = AppDispatcher.register((action) => {
     if (action.type === ActionTypes.INCREMENT || action.type === ActionTypes.DECREMENT) {
         AppDispatcher.waitFor([CounterStore.dispatchToken]);
@@ -228,7 +228,7 @@ SummaryStore.dispatchToken = AppDispatcher.register((action) => {
 
 怎麼解決這個問題？這就要靠Dispatcher的waitFor函數了。在SummaryStore的回調函數中，之前在CounterStore註冊的回調函數時保存下來的dispatchToken終於派上用場。
 
-Dispatcher的waitFor可以接受一個數組作為參數，數組的每個元素都是dispatcher.register返回的dispatchToken。這個函數告訴Dispatcher，當前的處理必須暫停，直到dispatchToken代表的那些回調函數執行結束才能繼續。
+Dispatcher的waitFor可以接受一個陣列作為參數，陣列的每個元素都是dispatcher.register返回的dispatchToken。這個函數告訴Dispatcher，當前的處理必須暫停，直到dispatchToken代表的那些回調函數執行結束才能繼續。
 
 調用waitFor，把控制權交給Dispatcher，讓Dispatcher檢查一下dispatchToken代表的回調函數有沒有被執行，有就繼續，沒有就調用dispatchToken代表的回調函數之後waitFor才返回。
 
@@ -248,7 +248,7 @@ Flux框架中，View並不是說必須要使用React，View本身是一個獨立
 
 *src/views/ControlPanel.js*：
 
-```
+```js
 import React, {Component} from 'react';
 
 import Counter from './Counter';
@@ -278,40 +278,67 @@ export default ControlPanel;
 
 接著看*src/views/Counter.js*：
 
-```
+```js
 import React, {Component} from 'react';
+
 import CounterStore from "../stores/CounterStore";
+import * as Actions from '../Actions';
+
+const buttonStyle = {
+    margin: '10px'
+};
 
 class Counter extends Component {
 
-    constructor(props) {
-        super(props);
+  constructor(props) {
+    super(props);
 
-        this.state = {
-            count: CounterStore.getCounterValues()[props.caption],
-        };
-    }
-
-    onChange = () => {
-
+    this.state = {
+        count: CounterStore.getCounterValues()[props.caption],
     };
+  }
+  
+  componentDidMoout() {
+    CounterStore.addChangeListener(this.onChange);
+  }
+  
+  componentWillUnmount() {
+    CounterStore.removeChangeListener(this.onChange);
+  }
 
-    onClickIncrementButton = () => {
+  onChange = () => {
+    this.setState({
+      count: CounterStore.getCounterValues()[this.props.caption],
+    });
+  };
 
-    };
+  onClickIncrementButton = () => {
+    Actions.increment(this.props.caption);
+  };
 
-    onClickDecrementButton = () => {
-
-    };
+  onClickDecrementButton = () => {
+    Actions.decrement(this.props.caption);
+  };
+  
+  render() {
+    const {caption} = this.props;
+    return (
+      <div>
+          <button style={buttonStyle} onClick={this.onClickIncrementButton}>+</button>
+          <button style={buttonStyle} onClick={this.onClickDecrementButton}>-</button>
+          <span>{caption} count: {this.state.count}</span>
+      </div>
+    );
+  }
 
 }
 
-exports default Counter;
+export default Counter;
 ```
 
 Counter組件的state應該成為Flux Store上狀態的一個同步鏡像，為了保持兩者一致，除了在構造函數中的初始化之外，在之後當CounterStore上狀態變化時，Counter組件也要對應變化。
 
-```
+```js
 componentDidMount() {
     CounterStore.addChangeListener(this.onChange);
 }
@@ -330,7 +357,7 @@ onChange = () => {
 
 接下來看React組件如何派發action：
 
-```
+```js
 onClickIncrementButton = () => {
     Actions.increment(this.props.caption);
 };
@@ -357,7 +384,7 @@ render() {
 
 *src/views/Summary.js*：
 
-```
+```js
 import React, {Component} from 'react';
 
 import SummaryStore from '../stores/SummaryStore';
@@ -399,7 +426,7 @@ export default Summary;
 
 *index.js*：
 
-```
+```js
 import React from 'react';
 import ReactDOM from 'react-dom';
 import ControlPanel from './views/ControlPanel';
@@ -501,7 +528,7 @@ Redux解決辦法是：整個應用只保持一個Store，所有組件的數據�
 
 Reducer是一個電腦科學中的通用概念，很多語言和框架都有對Reducer函數的支持。以JavaScript為例，陣列類型就有reduce函數，接受的參數就是一個reducer，reducer做的事情就是把陣列的所有元素依次做“規約”，對每個元素都調用一次參數reducer，透過reducer函數完成規約所有元素的功能。
 
-```
+```js
 [1,2,3,4].reduce(function reducer(accumulation, item) {
     return accumulation + item;
 }, 0);
@@ -519,7 +546,7 @@ reducer要做的事情，就是根據state和action的值產生一個新的對�
 
 回顧一下Flux的Store是如何處理函數的：
 
-```
+```js
 CounterStore.dispatchToken = AppDispatcher.register((action) => {
     if (action.type === ActionTypes.INCREMENT) {
         counterValues[action.counterCaption]++;
@@ -533,7 +560,7 @@ CounterStore.dispatchToken = AppDispatcher.register((action) => {
 
 Flux更新狀態的函數只有一個參數action，因為狀態是由Store直接管理的，所以處理函數中會看到代碼直接更新state；在Redux中，一個實現同樣功能的reducer代碼如下：
 
-```
+```js
 function reducer(state, action) {
   const {counterCaption} = action;
   
@@ -564,14 +591,14 @@ React與Redux事實上是兩個獨立的產品。
 
 *src/ActionTypes.js*：
 
-```
+```js
 export const INCREMENT = 'increment';
 export const DECREMENT = 'decrement';
 ```
 
 *src/Actions.js*就不大一樣了：
 
-```
+```js
 import * as ActionTypes from './ActionTypes';
 
 export const increment = (counterCaption) => {
@@ -598,7 +625,7 @@ Redux中每個action構造函數都返回一個action對象。
 
 *src/Store.js*：
 
-```
+```js
 import {createStore} from 'redux';
 import reducer from './Reducer.js';
 
@@ -619,7 +646,7 @@ export default store;
 
 *src/Reducer.js*：
 
-```
+```js
 import * as ActionTypes from './ActionTypes';
 
 export default (state, action) => {
@@ -638,13 +665,13 @@ export default (state, action) => {
 
 Redux中把存儲state的工作抽取出來交給Redux框架本身，讓reducer只用關心如何更新state，而不要管state怎麼存。
 
-```
+```js
 return {...state, [counterCaption]: state[counterCaption] + 1};
 ```
 
 上面代碼等同下面的代碼：
 
-```
+```js
 const newState = Object.assign({}, state);
 
 newState[counterCaption]++;
@@ -654,7 +681,7 @@ return newState;
 
 和flux很不一樣的是，在reducer中，絕對不能去修改參數中的state，因為reducer是純函數，純函數不應該產生任何副作用。
 
-```
+```js
 export default (state, action) => {
     const {counterCaption} = action;
     switch(action.type) {
@@ -671,7 +698,7 @@ export default (state, action) => {
 
 *src/views/ControlPanel.js*：
 
-```
+```js
 import React, {Component} from 'react';
 
 import Counter from './Counter';
@@ -698,7 +725,7 @@ class ControlPanel extends Component {
 
 *src/views/Counter.js*：
 
-```
+```js
 import React, {Component} from 'react';
 
 import store from '../Store';
@@ -727,7 +754,7 @@ class Counter extends Component {
 
 和Flux實現的例子一樣，僅僅在構造組件時根據store來初始化this.state還不夠，要保持store上狀態和this.state的同步：
 
-```
+```js
 onIncrement = () => {
     store.dispatch(Actions.increment(this.props.caption));
 };
@@ -739,7 +766,7 @@ onDecrement = () => {
 
 再來是render函數：
 
-```
+```js
 render() {
     const {value} = this.state;
     const {caption} = this.props;
@@ -758,7 +785,7 @@ render() {
 
 *src/views/Summary.js*：
 
-```
+```js
 import React, {Component} from 'react';
 
 import store from '../Store';
@@ -832,7 +859,7 @@ export default Summary;
 
 *src/views/Counter.js*中定義兩個組件，傻瓜組件很簡單，只有一個render函數：
 
-```
+```js
 class Counter extends Component {
     render() {
         const {caption, onIncrement, onDecrement, value} = this.props;
@@ -852,7 +879,7 @@ class Counter extends Component {
 
 CounterContainer：
 
-```
+```js
 class CounterContainer extends Component {
     constructor(props) {
         super(props);
@@ -905,7 +932,7 @@ export default CounterContainer;
 
 React支持只用一個函數代表無狀態組件，所以Counter組件可以進一步簡化：
 
-```
+```js
 function Counter({caption, onIncrement, onDecrement, value}) {
     return (
         <div>
@@ -921,7 +948,7 @@ function Counter({caption, onIncrement, onDecrement, value}) {
 
 *src/views/Summary.js*：
 
-```
+```js
 import React, {Component, PropTypes} from 'react';
 
 import store from '../Store';
@@ -979,3 +1006,269 @@ export default SummaryContainer;
 
 我們看到CounterSummary和SummaryContainer代碼有很多重複之處，既然都是相同套論，完全可以抽離出來，之後會應用react-redux來減少代碼重複。
 
+### 組件Context
+
+Counter和Summary組件，直接導入Redux Store，這樣依然有問題。
+
+實際工作，一個應用的規模會很大，不會所有的組件都放在一個代碼庫中。當開發一個獨立組件，都不知道自己這個組件會存在於哪個應用中，當然不可能預先知道定義唯一的Redux Store的文件位置了，所以，在組件中直接導入Store是非常不利於組件複用的。
+
+一個應用中，最好只有一個地方需要直接導入Store，這個位置當然應該是在調用最頂層React組件的位置。在我們應用中，就是導入在*src/index.js*中。
+
+不讓組件直接導入Store，那就只能讓組件的上層組件把Store傳遞下來了。但使用props傳遞會有層次的某些組件不需要使用，卻要認識store並傳遞，顯然這不是好方法。
+
+React提供了一個叫Context的功能，能夠完美解決這個問題。
+
+Context讓一個樹狀組件上所有組件都能訪問一個共同的對象，為了完成這個任務，需要上級組件和下級組件配合。
+
+首先，上級組件要宣稱自己支持context，並且提供一個函數來返回代表context的對象。
+
+然後，這個上級組件之下的所有子孫組件，只要宣稱自己需要這個context，就可以透過this.context訪問到這個共同的環境對象。
+
+Redux Store，頂層的組件來扮演這個Context提供者的角色，只要頂層組件提供包含store的context，那就覆蓋了整個應用的所有組件，簡單而且夠用。
+
+不過，每個應用的頂層組件不同，且頂層組件有它自己的職責，沒理由將它複雜化，沒必要讓它扮演context提供者的功能。
+
+我們來創建一個特殊的React組件，它將是一個通用的context提供者，可應用在任何一個應用中，我們把這個組件叫做Provider。
+
+*src/Provider.js*，首先定義一個Provider的React組件：
+
+```js
+import {PropTypes, Component} from 'react';
+
+class Provider extends Component {
+  getChildContext() {
+    return {
+      store: this.props.store
+    };
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
+```
+
+Provider也是一個React組件，不過他的render函數就是簡單地把子組件渲染出來，在渲染上，Provider也不做任何附加的事情。
+
+每個React組件的props中都有一個特殊的屬性children，代表的是子組件，比如這樣的代碼，在Provider的render函數中this.props.children就是兩個Provider標籤之間的`<ControlPanel/>`。
+
+```js
+<Provider>
+  <ControlPanel/>
+</Provider>
+```
+
+除了把渲染工作交給子組件，Provider還要提供一個函數getChildContext，這個函數返回的就是代表Context的對象。我們的Context中只有一個字段store，而且我們也希望Provider足夠通用，所以並不在這個文件中導入store，而是要求Provider的使用者透過props傳遞進來store。
+
+為了讓Provider能夠被React認可為一個Context的提供者，這需要指定Provider的childContextTypes屬性，代碼如下：
+
+```js
+Provider.childContextTypes = {
+  store: PropTypes.object
+};
+```
+
+Provider還需要定義類的childContextTypes，必須和getChildContext對應，只有這兩個都齊備，Provider的子組件才有可能訪問到context。
+
+_src/Provider.js_：
+
+```js
+import {PropTypes, Component} from 'react';
+
+class Provider extends Component {
+  getChildContext() {
+    return {
+      store: this.props.store
+    };
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
+
+
+Provider.propTypes = {
+    store: PropTypes.object.isRequired
+};
+
+Provider.childContextTypes = {
+  store: PropTypes.object
+};
+
+export default Provider;
+```
+
+有了Provider，我們就可以改進應用的入口*src/index.js*文件了：
+
+```js
+          ```
+
+在前面所有例子中，React.render的第一個函數就是頂層組件ControlPanel。現在Provider成了頂層組件。當然，Provider扮演的只是提供Context，包住了最頂層的ControlPanel，也就讓context覆蓋了整個應用中的所有組件。
+
+至此，完成了提供Context的工作，接下來看底層組件如何使用context。
+
+_src/views/ControlPanel.js_，它的工作只是搭建應用框架，把子組件渲染出來，和store一點關係都沒有，既沒有導入Store，也沒有支持關於store的props。
+
+_src/views/Counter.js_，可以看到對context的使用，作為傻瓜組件的Counter是一個無狀態組建。它也不需和Store牽扯什麼關係，有變化的是CounterContainer部分：
+
+為讓CounterContainer能夠訪問到context，必須給CounterContainer類的contextTypes賦值和Provider.childContextTypes一樣的值，兩者必須一致，不然就無法訪問context，代碼如下：
+
+```js
+CounterContainer.contextTypes = {
+  store: PropTypes.object,
+};
+```
+
+在CounterContainer中，所有對store的訪問，都是透過this.context.store完成，因為this.context就是Provider提供的context對象，所以getOwnState函數代碼如下：
+
+```js
+getOwnState = () => {
+  return {
+    value: this.context.store.getState()[this.props.caption]
+  };
+};
+```
+
+還有一點，因為我們自己定義了構造函數，所以要用上第二個參數context，代碼如下：
+
+```js
+constructor(props, context) {
+  super(props, context);
+
+  // ...
+}
+```
+
+在調用super的時候，一定要帶上context參數，這樣才能讓React組件初始化實例中的context，不然組件的其他部分就無法使用this.context。
+
+要求constructor顯示聲明props和context兩個參數然後又傳遞給super看起來很煩，我們的代碼似乎只是一個參數的搬運工，而且將來可能有新的參數出現那樣又要改這部分代碼，如果你這樣認為，可以用下面方法一勞永逸解決這個問題：
+
+```js
+constructor() {
+  super(...arguments);
+}
+```
+
+我們不能直接使用arguments，因為在JavaScript中arguments表現得像是一個陣列而不是分開的一個個參數，但是我們透過擴展標示符就能把arguments徹底變成傳遞給super的參數。
+
+Context這個功能相當於提供了一個全局可以訪問的對象，但是全局對象或者說全局變量肯定是我們應該避免的用法，只要有一個地方改變了全局對象的值，應用中其他部分就會受影響，那樣整個程序的運行結果就完全不可預期了。
+
+所以，單純來看React這個Context功能的話，必須強調這個功能要謹慎使用，只有對那些每個組件都可能使用，但是中間組件又可能不使用的對象才有必要使用Context，千萬不要濫用。
+
+對於Redux，因為Redux的Store封裝的很好，沒有提供直接修改狀態的功能，就是說一個組件雖然能夠訪問全局唯一的Store，卻不可能直接修改Store中的狀態，這樣部分克服了作為全局對象的缺點。而且，一個應用只有一個Store，這個Store是Context裡唯一需要的東西，並不算濫用，所以，使用Context來傳遞Store是一個不錯的選擇。
+
+### React-Redux
+
+上面兩節中，改進了React應用的兩個方法：
+
+1. 把一個組件拆分為容器組件和傻瓜組件
+2. 使用React的Context來提供一個所有組件都可以直接訪問的Context
+
+不難發現，這兩種方法都有套路，可以抽取出來複用，這樣每個組件的開發只需要關注於不同的部分就可以了。
+
+實際上，已有這樣的一個庫完成這些工作了，這個庫就是react-redux。
+
+接下來我們利用react-redux實現一個ControlPanel版本：
+
+_src/index.js_：
+
+```js
+import React from 'react';
+import ReactDOM from 'react-dom';
+import {Provider} from 'react-redux';
+
+import ControlPanel from './views/ControlPanel';
+import store from './Store';
+
+import registerServiceWorker from './registerServiceWorker';
+
+import './index.css';
+
+ReactDOM.render(
+  <Provider store={store}>
+    <ControlPanel/>
+  </Provider>
+  , document.getElementById('root'));
+
+registerServiceWorker();
+```
+
+唯一區別是不再使用自己實現的Provider，而是從react-redux庫導入Provider。
+
+有了react-redux，視圖文件*src/views/Counter.js*和*src/views/Summary.js*中的代碼可以變得相當簡潔。
+
+前面的redux_smart_dumb和redux_with_context例子中，我們實際上分別實現了react-redux的兩個最主要功能：
+
+- connect：連接容器組件和傻瓜組件
+- Provider：提供包含store的context
+
+現在我們直接使用react-redux提供的這兩個功能，讓我們分別來詳細介紹：
+
+#### 1. connect
+
+以Counter組件為例，react-redux的例子中沒有定義CounterContainer這樣命名的容器組件，而是直接導出了一個這樣的語句。
+
+```js
+export default connect(mapStateToProps, mapDispatchToProps)(Counter);
+```
+
+connect是react-redux提供的一個方法，這個方法接收兩個參數mapStateToProps和mapDispatchToProps，執行結果依然是一個函數，所以才可以在後面又加一個圓括號，把connect函數執行的結果立刻執行，這一次參數是Counter這個傻瓜組件。
+
+這裡有兩次函數執行，第一次是connect函數的執行，第二次是把connect函數返回的函數再次執行，最後產生的就是容器組件，功能相當於前面的CounterContainer。
+
+當然，我們也可以把connect的結果賦值給一個變數CounterContainer，然後再export這個CounterContainer，只是connect已經大大簡化了代碼，習慣上可以直接導出函數執行結果，也不用糾結如何命名這個變數：
+
+這個Connect函數具體做了什麼工作呢？
+
+做為容器組件，要做的工作無外乎兩件事：
+
+- 把Store上的狀態轉化為內層傻瓜組件的prop
+- 把內層傻瓜組件中的用戶動作轉化派送給Store的動作
+
+這兩個工作一個是內層傻瓜對象的輸入，一個是內層傻瓜對象的輸出。
+
+這兩個工作的套路也很明顯，把Store上的狀態轉化為內層組件的props，其實就是一個映射關係，去掉框架，最後就是一個mapStateToProps函數該做的事情。這個函數命名是業界習慣，因為他只是一個模組內的函數，所以實際上叫什麼函數都行，如果覺得mapStateoProps這個函數名太長，也可以叫mapState，也是業界慣常的座法。
+
+Counter組件對應的mapStateToProps函數代碼：
+
+```js
+function mapStateToProps(state, ownProps) {
+  return {
+    value: state[ownProps.caption]
+  };
+}
+```
+
+把內層傻瓜組件中用戶動作轉化為派送給Store的動作，也就是把內層傻瓜組件暴露出來的函數類型的prop關聯上dispatch函數的調用，每個prop代表的回調函數的主要區別就是dispatch函數的參數不同，這就是mapDispatchToProps函數做的事情，也可叫mapDispatch。
+
+Counter組件對應的mapDispatchToProps函數代碼：
+
+```js
+function mapDispatchToProps(dispatch, ownProps) {
+  return {
+    onIncrement: () => {
+      dispatch(Actions.increment(ownProps.caption));
+    },
+    onDecrement: () => {
+      dispatch(Actions.decrement(ownProps.caption));
+    }
+  }
+}
+```
+
+mapStateToProps和mapDispatchToProps都可以包含第二個參數，代表ownProps，也就是直接傳遞給外層容器組件的props。
+
+#### 2. Provider
+
+react-redux和我們例子中的Provider幾乎一樣，但是更加嚴謹，比如我們只要求store屬性是一個object，而react-redux要求store不光是一個object，而且是必須包含三個參數的object，這三個參數分別是：
+
+- subscribe
+- dispatch
+- getState
+
+擁有這三個函數的對象，才能稱之為Redux的store。
+
+另外，react-redux定義Provider的componentWillReceiveProps函數，在React組件的生命週期中，componentWillReceiveProps函數在每次重新渲染都會調用到，react-redux在componentWillReceiveProps函數中會檢查這一次渲染時代表store的prop和上一次的是否一樣。如果不一樣，就會給出警告，這樣做是為避免多次渲染用了不同的Redux
+Store。每個Redux應用只能有一個Redux
+Store，在整個Redux的生命週期中都應該保持Store的唯一性。

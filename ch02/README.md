@@ -364,7 +364,7 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     
     我們首先在Counter組件類裡增加函數定義，讓這個函數componentWillReceiveProps在console上輸出一些文字：
     
-    ```
+    ```js
     componentWillReceiveProps(nextProps) {
         console.log('enter componentWillReceiveProps: ' + this.props.caption);
     }
@@ -372,7 +372,7 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     
     ControlPanel的render函數：
     
-    ```
+    ```js
     render() {
         console.log('enter ControlPanel render');
         return (
@@ -416,8 +416,8 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     除了render函數，shouldComponentUpdate可能是React組件生命週期中最重要的一個函數了。
     
     render函數決定了該渲染什麼，shouldComponentUpdate函數則決定一個組件什麼時候不需要渲染。
-    
-    ender和shouldComponentUpdate函數，也是React生命週期函數中唯二兩個要求有返回結果的函數。render函數的返回結果將用於構造DOM對象，而shouldComponentUpdate函數返回一個boolean值，告訴React庫這個組件在這次更新過程中是否要繼續。
+
+    render和shouldComponentUpdate函數，也是React生命週期函數中唯二兩個要求有返回結果的函數。render函數的返回結果將用於構造DOM對象，而shouldComponentUpdate函數返回一個boolean值，告訴React庫這個組件在這次更新過程中是否要繼續。
     
     在更新過程中，React庫首先調用shouldComponentUpdate函數，如果返回true，那就會繼續更新過程，接下來調用render函數；反之，false則立刻停止更新過程，也就不引發後續的渲染了。
     
@@ -427,7 +427,7 @@ React嚴格定義了組件的生命週期，生命週期可能會經歷三個過
     
     現在來嘗試給Counter組件類增加shouldComponentUpdate函數的定義：
     
-    ```
+    ```js
     shouldComponentUpdate(nextProp, nextState) {
         return nextProp.caption !== this.props.caption || nextState.count !== this.state.count;
     }
@@ -474,7 +474,7 @@ ControlPanel新增一個能夠即時顯示這三個子組件當前計數值之�
 
 Counter組件：
 
-```
+```js
 onClickIncrementButton = () => {
     this.updateCount(true);
 };
@@ -495,7 +495,7 @@ updateCount = (isIncrement) => {
 
 對應的，Counter組件的propTypes和defaultProps就要增加onUpdate的定義：
 
-```
+```js
 Counter.propTypes = {
     caption: PropTypes.string.isRequired,
     initValue: PropTypes.number,
@@ -514,7 +514,7 @@ onUpdate成為子組件向父組件傳遞數據的渠道，根據newValue與prev
 
 現在ControlPanel需要包含自己的state，首先是構造函數的部分：
 
-```
+```js
 constructor(props) {
     super(props);
 
@@ -528,7 +528,7 @@ constructor(props) {
 
 ControlPanel傳遞給Counter組件的onUpdate這個prop的值是onCounterUpdate函數：
 
-```
+```js
 onCounterUpdate = (newValue, previousValue) => {
     const valueChange = newValue - previousValue;
     this.setState({
@@ -537,11 +537,11 @@ onCounterUpdate = (newValue, previousValue) => {
 };
 ```
 
-遺憾的是，React雖然有PropType能夠檢查prop的類型，卻沒有任何機制來限制prop的參數規格，參數的一致性只能靠開發者來保證。
+遺憾的是，React雖然有PropType能夠檢查prop的類型，**卻沒有任何機制來限制prop的參數規格**，參數的一致性只能靠開發者來保證。
 
 ControlPanel組件的render函數：
 
-```
+```js
 render() {
     console.log('enter ControlPanel render');
     return (
