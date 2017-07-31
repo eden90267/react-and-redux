@@ -611,3 +611,424 @@ HTML中，一個form表單被提交的default行為會引發網頁跳轉，在Re
 使用ref實際上就是直接觸及了DOM元素，與我們想遠離DOM是非之地的想法相斥，雖然React提供了這功能，但還是要謹慎使用，如果要用，也盡量讓ref不要跨越組件的邊界。
 
 所以，我們把透過ref訪問input.value放在內部的AddTodo中，但是把調用dispatch派發action對象的邏輯放在mapDispatchToProps中，兩者一個主內一個主外，各司其職，不要混淆。
+
+>**注意**：  
+>並不是只有ref一種方法才能夠訪問input元素的value，我們在這裡使用ref主要是展示一下React的這個功能，後面章節會介紹更加可控的方法。
+
+注意，對於AddTodo，沒有任何需要從Redux
+Store的狀態延伸的屬性，所以最後一行的connect函數第一個參數mapStateToProps是null，只是用了第二個參數mapDispatchToProps。
+
+在*src/todos/views/addTodo.js*中表示AddTodo標示符代表的組件和*src/todos/views/todos.js*中AddTodo標示符代表的組件不一樣，後者是前者用react-redux包裏之後的容器組件。
+
+```js
+import React, {Component, PropTypes} from 'react';
+import {connect} from 'react-redux';
+
+import {addTodo} from '../actions';
+
+class AddTodo extends Component {
+
+  constructor() {
+    super(...arguments);
+  }
+
+  onSubmit = ev => {
+    ev.preventDefault();
+
+    const input = this.input;
+    if (!input.value.trim()) {
+      return;
+    }
+
+    this.props.onAdd(input.value);
+    input.value = '';
+  };
+
+  refInput = node => {
+    this.input = node;
+  };
+
+
+  render() {
+    return (
+      <div className="add-todo">
+        <form onSubmit={this.onSubmit}>
+          <input className="new-todo" ref={this.refInput}/>
+          <button className="add-btn" type="submit">
+            添加
+          </button>
+        </form>
+      </div>
+    )
+  }
+
+}
+
+AddTodo.propTypes = {
+  onAdd: PropTypes.func.isRequired,
+};
+
+const mapDispatchToProps = (dispatch) => {
+  return {
+    onAdd: (text) => {
+      dispatch(addTodo(text));
+    }
+  }
+};
+
+export default connect(null, mapDispatchToProps)(AddTodo);
+```
+
+接下來看看待辦事項列表組件，定義在*src/todos/view/todoList.js*中，在渲染TodoList時，我們的todos屬性是一個陣列，而陣列元素的個數是不確定的，這就涉及如何渲染數量不確定組件的問題，TodoList作為無狀態組件代碼如下：
+
+```js
+const TodoList = ({todos, onToggleTodo, onRemoveTodo}) => {
+  return (
+    <ul className="todo-list">
+      {
+        todos.map(item => (
+          <TodoItem
+            key={item.id}
+            text={item.text}
+            completed={item.completed}
+            onToggle={() => onToggleTodo(item.id)}
+            onRemove={() => onRemoveTodo(item.id)}
+          />
+        ))
+      }
+    </ul>
+  );
+};
+```
+
+這段代碼中的TodoList真的就只是一個無狀態的傻瓜組件了，對於傳遞進來的todos屬性，預期是一個陣列，透過一個陣列的map函數轉化為TodoItem組件的陣列。
+
+很自然會想用循環來產生同樣數量的TodoItem組件實例，但是，並不能在JSX中使用for或者while這樣的循環語句。因為，JSX可以使用任何形式的JavaScript表達式，只要JavaScript表達式出現在符號{}之間，但是也只能是JavaScript"表達式"，for或while產生的是"語句"而不是表達式。
+
+歸根到底，JSX最終會被babel轉移成一個嵌套的函數調用，在這函數調用中自然無法插入一個語句進去，所以當我們想要在JSX中根據陣列產生動態數量的組件實例，就應該使用陣列的map方法。
+
+還有一點很重要，關於動態數量的子組件，每個子組件都必須要帶上一個key屬性，這個key屬性的值一定要是能夠唯一標示這個子組件的值。
+
+TodoList的mapStateToProps方法須根據Store上的filter狀態決定todos狀態上取那些元素來顯示，這個過程涉及對filter的switch判斷。為防止mapStateToProps方法過長，我們將這個邏輯提取到selectVisibleTodos函數中：
+
+```js
+const selectVisibleTodos = (todos, filter) => {
+  switch (filter) {
+    case FilterTypes.ALL:
+      return todos;
+    case FilterTypes.COMPLETED:
+      return todos.filter(item => item.completed);
+    case FilterTypes.UNCOMPLETED:
+      return todos.filter(item => !item.completed);
+    default:
+      throw new Error('unsupported filter');
+  }
+};
+
+const mapStateToProps = (state) => {
+  return {
+    todos: selectVisibleTodos(state.todos, state.filter)
+  };
+};
+```
+
+最後，我們看TodoList的mapDispatchToProps文件：
+
+```js
+const mapDispatchToProps = (dispatch) => {
+  return {
+    onToggleTodo: (id) => {
+      dispatch(toggleTodo(id));
+    },
+    onRemoveTodo: (id) => {
+      dispatch(removeTodo(id));
+    }
+  }
+};
+```
+
+在TodoList空間中，看mapDispatchToProps函數產生的兩個新屬性onToggleTodo和onRemoveTodo的代碼遵循一樣的模式，都是把接收到的參數作為參數傳遞給一個action構造函數，然後用dispatch方法把產生的action對象派發出去，這看起來是重複代碼。
+
+實際上，Redux已經提供一個bindActionCreators方法來消除這樣的重複代碼，顯而易見很多mapDispatchToProps要做的事情只是把action構造函數和prop關聯起來，所以直接以prop名為欄位名，以action構造函數為對應欄位值，把這樣的對象傳遞給bindActionCreators就可以了
+
+```js
+const mapDispatchToProps = (dispatch) => bindActionCreators({
+  onToggleTodo: toggleTodo,
+  onRemoveTodo: removeTodo
+}, dispatch);
+```
+
+更進一步，可以直接讓mapDispatchToProps是一個prop到action構造函數的映射，這樣連bindActionCreators函數都不用：
+
+```js
+const mapDispatchToProps = {
+  onToggleTodo: toggleTodo,
+  onRemoveTodo: removeTodo
+};
+```
+
+上面定義的mapDispatchToProps傳給connect函數，產生的效果和之前的寫法完全一樣。
+
+我們再來看定義TodoItem的*src/todos/views/todoItem.js*文件：
+
+```js
+import React, {PropTypes} from 'react';
+
+const TodoItem = ({onToggle, onRemove, completed, text}) => (
+  <li
+    className="todo-item"
+    style={{
+      textDecoration: completed ? 'line-through' : 'node'
+    }}>
+    <input className="toggle" type="checkbox" checked={completed ? "checked" : ""} readOnly onClick={onToggle}/>
+    <label className="text">{text}</label>
+    <button className="remove" onClick={onRemove}>x</button>
+  </li>
+);
+
+TodoItem.propTypes = {
+  onToggle: PropTypes.func.isRequired,
+  onRemove: PropTypes.func.isRequired,
+  completed: PropTypes.bool.isRequired,
+  text: PropTypes.string.isRequired
+};
+
+export default TodoItem;
+```
+
+這裡TodoItem就是一個無狀態的組件。
+
+#### 2. filter視圖
+
+對於過濾器，我們有三個功能類似的鏈接，很自然就會想到把鏈接相關的功能提取出來，放在一個Link的組件中。
+
+_src/filter/views/filter.js_：
+
+```js
+import React from 'react';
+
+import Link from './link';
+import {FilterTypes} from "../../constants";
+
+const Filters = () => {
+  return (
+    <p className="filters">
+      <Link filter={FilterTypes.ALL}>{FilterTypes.ALL}</Link>
+      <Link filter={FilterTypes.COMPLETED}>{FilterTypes.COMPLETED}</Link>
+      <Link filter={FilterTypes.UNCOMPLETED}>{FilterTypes.UNCOMPLETED}</Link>
+    </p>
+  );
+};
+
+export default Filters;
+```
+
+這個filter是無狀態函數，列出三個過濾器，把實際工作交給了Link組件。
+
+_src/filter/views/link.js_：
+
+```js
+const Link = ({active, children, onClick}) => {
+  if (active) {
+    return <b className="filter selected">{children}</b>
+  } else {
+    return (
+      <a href="#" className="filter not-selected" onClick={(ev) => {
+        ev.preventDefault();
+        onClick();
+      }}>
+        {children}
+      </a>
+    );
+  }
+};
+```
+
+我們使用了一個特殊屬性children，對於任何一個React組件都可訪問這樣一個屬性，代表的是被包裏住的子組件。在render函數中把children屬性渲染出來，是慣常的組合React組件的方法。
+
+Link的mapStateToProps和mapDispatchToProps函數都很簡單：
+
+```js
+const mapStateToProps = (state, ownProps) => {
+  return {
+    active: state.filter === ownProps.filter
+  };
+};
+
+const mapDispatchToProps = (dispatch, ownProps) => ({
+  onClick: () => {
+    dispatch(setFilter(ownProps.filter));
+  }
+});
+```
+
+### 樣式
+
+_src/todos/views/style.css_：
+
+```css
+.todos {
+    width: 500px;
+    font-size: 30px;
+}
+
+.add-todo {
+    position: relative;
+}
+
+.add-todo .new-todo {
+    display: block;
+    margin: 0 0 0 50px;
+    font-size: 30px;
+    -webkit-font-smoothing: antialiased;
+    -moz-font-smoothing: antialiased;
+    font-smoothing: antialiased;
+}
+
+.add-todo .add-btn {
+    font-size: 30px;
+    position: absolute;
+    top: 0;
+    right: 0;
+}
+
+.todo-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+
+    font-size: 30px;
+}
+
+
+.todo-item {
+    position: relative;
+    height: 60px;
+    line-height: 50px;
+    vertical-align: middle;
+}
+
+.todo-item .toggle {
+    height: 40px;
+    -webkit-appearance: none;
+    appearance: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+}
+
+.todo-item .toggle:after {
+    margin: 10px 0 0 0;
+    content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="-10 -18 100 135"><circle cx="50" cy="50" r="50" fill="none" stroke="#ededed" stroke-width="3"/></svg>');
+}
+
+.todo-item .toggle:checked:after {
+    content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="-10 -18 100 135"><circle cx="50" cy="50" r="50" fill="none" stroke="#bddad5" stroke-width="3"/><path fill="#5dc2af" d="M72 25L42 71 27 56l-4 4 20 20 34-52z"/></svg>');
+}
+
+.todo-item .text {
+    margin: 0 0 0 50px;
+    height: 40px;
+}
+
+.todo-item .remove {
+    border: 0;
+    background: 0;
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 10px;
+    bottom: 0;
+    width: 40px;
+    height: 40px;
+    font-size: 30px;
+    color: #cc9a9a;
+    margin-bottom: 11px;
+    transition: color 0.2s ease-out;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.todo-item:hover .remove {
+    display: block
+}
+
+.todo-item .remove:hover {
+    color: #af5b5e;
+}
+```
+
+_src/filters/views/style.css_：
+
+```css
+
+```
+
+為讓定義的樣式產生效果，在Todos組件的最頂層視圖文件*src/todos/views/todos.js*添加下列代碼：
+
+```js
+import './style.css';
+```
+
+在React應用中，通常使用webpack來完成對JavaScript的打包，不過webpack不只能夠處理JavaScript，它能夠處理CSS、SCSS甚至圖片文件，因為在webpack眼裡，一切文件都是"模組"，透過文件的import或require函數調用就可以找到文件之間的使用關係，只要被import就會被納入最終打包的文件中，即使import的是一個CSS文件。
+
+把CSS文件用import語句導入，webpack默認的處理方式是將CSS文件的內容嵌入最終的打包文件bundle.js中，這毫無疑問會讓打包文件變得更大，但是應用所有的邏輯都被包含在這個文件中了，便於部署。
+
+如果不希望將CSS和JavaScript混在一起，也可在webpack透過配置完成，在webpack的loader中使用extract-text-webpack-plugin，就可以讓CSS文件在build時被放在獨立的CSS文件中，第11章會介紹定制webpack配置的方法。
+
+選擇CSS和JavaScript一起還是分開打包，和代碼沒有任何躥系，這就是React的妙處。代碼中只需要描述"想要什麼"，至於最終"怎麼做"，可透過配置webpack獲得多重選擇。
+
+如果使用SCSS語法，可以簡化上面的樣式代碼，但是creat-react-app產生的應用默認不支持SCSS，有興趣可透過eject方法編輯webpack配置，應用上SCSS加載器。
+
+### 不使用ref
+
+代碼透過React的ref功能來訪問DOM中元素，這種功能的需求往往來自提交表單的操作，在提交表單的時候，需要讀取當前表單中input元素的值。
+
+毫無疑問，ref的用法非常脆弱，因為React的產生就是為了避免直接操作DOM元素，因為直接訪問DOM元素很容易產生失控的情況，現在為了讀取某個DOM元素的值，透過ref取得對元素的直接引用，不得不說，幹的並不漂亮。
+
+有沒有更好的辦法?
+
+有，可利用組件狀態來同步紀錄DOM元素的值，這種方法可以控制住組件不使用ref。
+
+addTodo.js：
+
+```js
+onInputChange = ev => {
+  this.setState({
+    value: ev.target.value
+  });
+};
+
+render() {
+  return (
+    <div className="add-todo">
+      <form onSubmit={this.onSubmit}>
+        <input className="new-todo" onChange={this.onInputChange} value={this.state.value}/>
+        <button className="add-btn" type="submit">
+          添加
+        </button>
+      </form>
+    </div>
+  )
+}
+```
+
+然後看onSubmit函數的改變：
+
+```js
+onSubmit = ev => {
+  ev.preventDefault();
+
+  const {value} = this.state;
+  if (!value.trim()) {
+    return;
+  }
+
+  this.props.onAdd(value);
+  this.setState({
+    value: ''
+  });
+};
+```
+
+在產品開發中，應該盡量避免ref的使用，而換用這種狀態綁定的方法來獲取元素的值。
