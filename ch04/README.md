@@ -1032,3 +1032,104 @@ onSubmit = ev => {
 ```
 
 在產品開發中，應該盡量避免ref的使用，而換用這種狀態綁定的方法來獲取元素的值。
+
+## 開發輔助工具
+
+>工欲善其事，必先利其器。 ——《論語．衛靈公》
+
+將來還會遇到更複雜的運用，是時候引入一些開發輔助工具了，必要的工具能夠大大提高我們的工作效率。
+
+### chrome擴展包
+
+- React Devtools：可檢視React組件的樹形結構
+- Redux Devtools：可檢視Redux數據流，可以將Store狀態跳耀到任何一個歷史狀態，也就是所謂的時間旅行
+- React Perf：可以發現React組件渲染的性能問題
+
+### redux-immutable-state-invariant輔助包
+
+我們曾經反覆強調過，每一個reducer函數都必須是一個純函數，不能修改傳入的參數state和action，否則會讓應用重新陷入不可預料的境地。
+
+禁止reducer函數修改參數，這是一個規則，規則總會被無心違反，要如何避免？
+
+有一個redux-immutable-state-invariant包，提供了一個Redux的中間件，能夠讓Redux在每次派發動作之後做一個檢查。如果發現某個reducer違反了作為一個純函數的規定擅自修改了參數state，就會給一個大大的錯誤警告，讓開發者意識到錯誤並修正。
+
+中間件是可以增強Redux的Store實例功能的一種方法。
+
+在產品環境中不啟用redux-immutable-state-invariant。
+
+### 工具應用
+
+對React Devtools來說，啟用只是安裝一個Chrome擴展包的事，但對於其餘幾個工作，我們代碼要做一些修改才能配合瀏覽器使用。
+
+因為Store是Redux應用的核心，所以所有的代碼修改都集中在*src/Store.js*中
+
+首先需要從Redux引入多個函數：
+
+```js
+import {createStore, combineReducers, applyMiddleware, compose} from 'redux';
+```
+
+為了使用React Perf插件，需要添加如下代碼：
+
+```js
+import Perf from 'react-addons-perf';
+
+const win = window;
+
+win.Perf = Perf;
+```
+
+在這裡把window賦值給模組級別變量win，是為了幫助代碼縮小器(minifer)，在webpack中縮小代碼的插件叫做UglifyJsPlugin，能夠將局部變數名改成很短的變數名，這樣功能不受影響但是代碼的大小大大縮減。
+
+不過，和所有的代碼縮小器一樣，UglifyJsPlugin不改去改變全局變量名，因為改了就會影響程序的功能。所以當多次引用window這樣的全局變量時，最好在模組開始將window賦值給一個變量，比如win，然後在代碼其他部分只使用win，這樣最終經過UglifyJsPlugin產生的縮小代碼就只包含一個無法縮小的window變量。
+
+我們給win上的Perf賦值了從react-addons-perf上導入的內容，這是為了幫助React
+Perf擴展包的使用，做了這個代碼修改以後，React Perf上的Start按鈕和Stop按鈕才會起作用。
+
+為了應用redux-immutable-statepinvariant中間件和Redux
+Devtools，需要使用Redux的Store Enhancer功能，代碼如下：
+
+```js
+const reducer = combineReducers({
+  todos: todoReducer,
+  filter: filterReducer
+});
+
+const middlewares = [];
+if (process.env.NODE_ENV !== 'production') {
+  middlewares.push(require('redux-immutable-state-invariant').default());
+}
+
+const storeEnhancers = compose(
+  applyMiddleware(...middlewares),
+  (win && win.devToolsExtension) ? win.devToolsExtension() : (f) => f,
+);
+
+export default createStore(reducer, {}, storeEnhancers);
+```
+
+代碼修改的關鍵在於給createStore函數增加了第三個參數storeEnhaners，這個參數代表Store
+Enhancer的意思，能夠讓createStore函數產生的Store對象具有更多更強的功能。
+
+因為Store
+Enhancer可能有多個，在我們例子中就有兩個，所以Redux提供了一個compose函數，用於把多個Store
+Enhancer組合在一起，我們分別來看這兩個Store Enhancer是什麼。
+
+第一個Store
+Enhancer是一個函數applyMiddleware的執行結果，這個函數接受一個陣列作為參數，每個元素都是一個Redux的中間件。雖然目前我們只應用了一個中間件，但是考慮到將來會擴展更多，所以我們用陣列變量middlewares來儲存所有的中間件，將來要擴展新的中間件只需要往這個陣列中push新的元素就可以了。
+
+import導入模組，但在這裡卻用了Node傳統風格的require，因為import語句不能夠存在於條件語句之中，只能出現在模組語句的頂層位置。
+
+第二個Store Enhancer就是Redux Devtools，因為Redux
+Devtools的工作原理是截獲所有應用中Redux Store的動作和狀態變化，所以必須透過Store
+Enhancer在Redux Store中加入鉤子。
+
+如果瀏覽器中安裝了Redux
+Devtools，在全局window對象上就有一個devToolsExtension代表Redux
+Devtools。但是，我們也要讓沒有安裝這個擴展包的瀏覽器也能正常使用我們的應用，所以要根據window.devToolsExtension是否存在做一個判斷，有就用，沒有就插入一個什麼都不做的函數。
+
+```js
+(win && win.devToolsExtension) ? win.devToolsExtension() : (f) => f
+```
+
+當所有代碼修改完畢，重啟Todo應用，就可以用上React和Redux的工具了。
