@@ -96,3 +96,86 @@ export default connect(mapStateToProps, mapDispatchToProps)(Foo);
 ```
 
 可以看到，往往都沒有必要把產生的容器組件賦值給一個變量操作符，直接把connect的結果export導出就可以了。
+
+雖然代碼上不可見，但是connect的過程中實際上產生了一個無名的React組件類，這個類定製了shouldComponentUpdate函數的實現，實現邏輯是比對這次傳遞給內層傻瓜組件的props和上一次的props，因為負責"組件看起來怎樣"的傻瓜組件是一個無狀態組件，它的渲染結果完全由傳入的props決定，如果props沒有變化，那就可以認為渲染結果肯定一樣。
+
+例如，我們有一個Foo組件：
+
+```js
+import React, {PropTypes} from 'redux';
+import {connect} from 'react-redux';
+
+const Foo = ({text}) => (
+  <div>{text}</div>
+);
+
+const mapStateToProps = (state) => (
+  text: state.text
+);
+export default connect(mapStateToProps)(Foo);
+```
+
+這組件簡單的不能再簡單，就是把Redux
+Store的狀態樹上的text欄位顯示出來。內部的傻瓜組件Foo只有一個props屬性text，透過react-redux的connect方法，這個文件導出的是封裝後的容器組件。
+
+這例子中，導出的容器組件的shouldComponentUpdate所做的事情，就是判斷這次渲染text值和上一次text值是否相同，相同就沒必要重新渲染了，可返回false，否則返回true。
+
+這樣，我們編寫的Foo依然是無狀態組件，但是當要渲染Foo組件實例時，只要Redux
+Store上的對應state沒有改變，Foo就不會經歷無意義的Virtual DOM產生和比對過程，也就避免了浪費。
+
+同樣的方法也可以應用在TodoItem組件上。不過，因為TodoItem沒有直接從Redux
+Store上讀取狀態，但我們依然可以使用react-redux方法，只是connect函數的調用不需要任何參數，要做的只是將定義TodoItem組件的代碼最後一行改成如下代碼：
+
+```js
+export default connect()(TodoItem);
+```
+
+上面例子中，connect函數調用沒有mapStateToProps和mapDispatchToProps函數，使用connect包裏TodoItem唯一目的是為了shouldComponentUpdate函數。
+
+使用React Perf重複檢查性能，發現沒有真正解決問題，依然存在渲染浪費的問題。
+
+只是產生浪費的組件發生了變化，TodoList渲染Connect(TodoItem)是浪費，根源是Connect(TodoItem)渲染TodoItem浪費。
+
+react-redux提供的shouldComponentUpdate默認實現，對比prop和上一次渲染所用的prop方面是採用"淺層比較"(shallow
+compare)，簡單來說就是用JavaScript的`===`操作符來進行比較，如果prop的類型是字串或數字的基本型態沒問題，但如果prop的類型是複雜對象，那麼"淺層比較"的方式只看這兩個prop是不是同一對象的引用，如果不是，哪怕對象的內容完全依樣，也被認為是不同的兩個prop。
+
+比如，JSX中使用組件Foo的時候給名為style的prop賦值：
+
+```js
+<Foo style={{color: 'red'}} />
+```
+
+像上面這樣使用方法，Foo組件利用react-redux提供的shouldComponentUpdate函數實現，每一次渲染都會認為style這個prop發生了變化，因為每次都會產生新的對象給style，在"淺層比較"中，只比較第一層，不會去比較對象裡面是不是相等。
+
+react-redux利用"淺層比較"並不是做得不夠好，因為一個對象到底有多少層無法預料，如果做遞迴對每個欄位進行"深層比較"，不只代碼複雜，也可能造成性能問題。
+
+如果需要做深層比較，那就是某個特定組件的行為，需要開發者自己根據組件的情況去編寫。要謹記，不要簡單用遞迴比較所有層次的欄位，因為傳遞進來的prop是什麼結構無法預料。
+
+總之，要想讓react-redux認為前後的對象類型prop是相同的，就必須保證prop是指向同一個JavaScript對象
+
+```js
+const fooStyle = {color: 'red'}; // 確保這個初始化只執行一次，不要放在render中
+
+<Foo style={fooStyle} />
+```
+
+同樣的情況也存在於函數類型的prop，react-redux無從知道兩個不同的函數是不是做一樣的事情，要想讓它認為兩個prop是相同的，就必須讓這兩個prop指向同樣一個函數，如果每次傳給prop的都是一個新創建的函數，那肯定就沒法讓prop指向同一個函數了。
+
+看TodoList傳遞給TodoItem的onToggle和onRemove的prop是如何寫的：
+
+```js
+onToggle={() => onToggleTodo(item.id)}
+
+onRemove={() => onRemoveTodo(item.id)}
+```
+
+這裡賦值給onClick的是一個匿名的函數，而且是在賦值的時候產生的。也就是說，每次渲染一個TodoItem的時候，都會產生一個新的函數，這就是問題所在。
+
+react-redux只認函數類型prop是不是指向同一個函數對象，每次都新產生的函數怎麼可能通過這個檢驗呢。
+
+怎麼辦? 辦法就是不要讓TodoList每次都傳遞新的函數給TodoItem。
+
+在Todo應用這個例子中，TodoItem組件實例的數量是不確定的，而每個TodoItem的點擊事件又依賴於TodoItem的id，所以處理起來有點麻煩，這裡有兩個方式：
+
+第一種方式，TodoList保證傳遞給TodoItem的onToggle永遠只指向同一個函數對象，這樣是為了應對TodoItem的shouldComponentUpdate檢查，但是因為TodoItem可能有多個實例，所以這個函數要用某種方法區分什麼TodoItem回調這個函數，區分的方法只能透過函數參數。
+

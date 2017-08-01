@@ -4,7 +4,7 @@ const TodoItem = ({onToggle, onRemove, completed, text}) => (
   <li
     className="todo-item"
     style={{
-      textDecoration: completed ? 'line-through' : 'node'
+      textDecoration: completed ? 'line-through' : 'none'
     }}>
     <input className="toggle" type="checkbox" checked={completed ? "checked" : ""} readOnly onClick={onToggle}/>
     <label className="text">{text}</label>
