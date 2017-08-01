@@ -179,3 +179,131 @@ react-redux只認函數類型prop是不是指向同一個函數對象，每次�
 
 第一種方式，TodoList保證傳遞給TodoItem的onToggle永遠只指向同一個函數對象，這樣是為了應對TodoItem的shouldComponentUpdate檢查，但是因為TodoItem可能有多個實例，所以這個函數要用某種方法區分什麼TodoItem回調這個函數，區分的方法只能透過函數參數。
 
+在TodoList組件中，mapDispatchProps產生的prop中的onToggleTodo接受TodoItem的id作為參數，恰好勝任這個工作，所以，可以在JSX中代碼改成下面這樣：
+
+```js
+<TodoItem
+  key={item.id}
+  id={item.id}
+  text={item.text}
+  completed={item.completed}
+  onToggle={onToggleTodo}
+  onRemove={onRemoveTodo}
+/>
+```
+
+注意，除了onToggle和onRemove的值改變了，還增加了一個新的prop名為id，這是讓每個TodoItem知道自己的id，在回調onToggle和onRemove時可以區分不同的TodoItem實例。
+
+TodoList的代碼簡化了，但TodoItem也要做對應的改變，對應TodoItem的mapDispatchToProps：
+
+```js
+const mapDispatchToProps = (dispatch, ownProps) => ({
+  onToggleItem: () => ownProps.onToggle(ownProps.id)
+})
+```
+
+ownProps就是父組件渲染當前組件時傳遞過來的props，透過ownProps.id就能夠得到父組件傳遞過來的名為id的prop值。
+
+上面的mapDispatchToProps函數給TodoItem組件增加了名為onToggleItem的prop，調用onToggle，傳遞當前實例的id作為參數，在TodoItem的JSX中就應該使用onToggleItem，而不是直接使用TodoList提供的onToggle。
+
+第二種方式，乾脆讓TodoList不要給TodoItem傳遞任何函數類型prop，點擊事件完全由TodoItem組件自己搞定：
+
+TodoList組件的JSX：
+
+```js
+<TodoItem
+  key={item.id}
+  id={item.id}
+  text={item.text}
+  completed={item.completed}
+/>
+```
+
+在TodoItem組件中，需要自己透過react-redux派發action：
+
+```js
+const mapDispatchToProps = (dispatch, ownProps) => ({
+  onToggle: () => dispatch(toggleTodo(ownProps.id)),
+  onRemove: () => dispatch(removeTodo(ownProps.id))
+});
+```
+
+對比兩種方式，可以看到無論如何TodoItem都需要使用react-redux，都需要定義產生定製的prop的mapDispatchToProps，都要求TodoList傳入一個id，區別在於actions是由父組件導入還是子組件自己導入。
+
+相比而言，沒有多大必要讓action在TodoList導入然後傳遞一個函數給TodoItem，第二種方式讓TodoItem處理自己的一切事務，更符合高內聚的要求。
+
+將傻瓜組件TodoItem變成一個ES6
+class，在constructor和render加上console.log，根據browser上輸出，就能知道TodoItem組件是否經歷了裝載過程和更新過程：
+
+```js
+class TodoItem extends Component {
+  constructor() {
+    super(...arguments);
+
+    console.log('enter TodoItem constructor: ' + this.props.text);
+  }
+
+  render() {
+    const {completed, onToggle, onRemove, text} = this.props;
+
+    console.log('enter TodoItem render: ' + text);
+
+    return (
+      <li
+        className="todo-item"
+        style={{
+          textDecoration: completed ? 'line-through' : 'none'
+        }}>
+        <input className="toggle" type="checkbox" checked={completed ? "checked" : ""} readOnly onClick={onToggle}/>
+        <label className="text">{text}</label>
+        <button className="remove" onClick={onRemove}>x</button>
+      </li>
+    )
+  }
+
+}
+```
+
+添加三個待辦事項，First、Second和Third，讓First和Third反轉為完成狀態，清空瀏覽器Console。
+
+這時候，點擊“已完成”過濾器，待辦事項就只顯示First和Third，在Console看不到任何輸出，說明這個過程沒有任何TodoItem組件被創建和更新。
+
+再點擊“全部”過濾器，這時在瀏覽器Console中有如下輸出：
+
+```bash
+enter TodoItem constructor: Second
+enter TodoItem render: Second
+```
+
+這個過程涉及TodoList組件的更新，但First和Third兩個TodoItem實例的render函數沒有被調用，說明react-redux的shouldComponentUpdate函數起了作用，避免了沒必要的渲染。使用React
+Perf工具，也不再出現浪費的渲染時間。
+
+好奇的是，在“全部”和“未完成”之間切換的時後，似乎只有Second這個TodoItem經歷了裝載過程，React如何知道First和Third這兩個TodoItem不需要渲染？這就是下一節多個React組件性能優化要討論的問題。
+
+## 多個React組件的性能優化
+
+當一個React組件被裝載、更新和卸載時，組件的一系列生命週期函數會被調用。不過，這些生命週期函數針對某一個特定React組件的函數，在一個應用中，從上到下有很多React組件組合起來，他們之間的渲染過程要更加複雜。
+
+我們現在考慮的是多個React組件之間組合的渲染過程。和單個React組件的生命週期一樣，也要考慮三個階段：裝載、更新與卸載。
+
+裝載沒有什麼優化的事情可做，無論如何都要徹底渲染一次的，從React組件往下的所有子組件，都要經歷一遍React組件的裝載生命週期。
+
+卸載只有一個生命週期函數componentWillUnmount，這個函數只是清理componentDidMount添加的事件處理監聽等收尾工作，做的事情比裝載過程要少很多，所以也沒有什麼可優化的空間。
+
+
+所以值得關注的過程，就只剩下了更新過程。
+
+### React的調和(Reconciliation)過程
+
+在裝載過程中，React透過render方法在內存中產生了一個樹型的結構，樹上每一個節點代表一個React組件或者原生的DOM元素，這個樹形結構就是所謂的Virtual
+DOM。React根據這個Virtual DOM來渲染產生瀏覽器中的DOM樹。
+
+裝載過程結束後，用戶就可以對網頁進行交互，用戶操作引發了介面更新，網頁需要更新介面，React依然透過render方法獲得一個新的樹型結構Virtual
+DOM，這時候當然不能完全和裝載過程一樣直接用Virtual DOM去產生DOM樹，不然就和原始的字符串模板一個作法。而且，在真實的應用中，大部分網頁內容的更新都是局部的小改動，如果每個改動都是推倒重來，那樣每次都重新完全生成DOM樹，性能肯定不可接受。
+
+實際上，React更新階段很巧妙對比原有的Virtual DOM和新生成的Virtual DOM，找出兩者的不同之處，根據不同來修改DOM樹，這樣只需做最小的必要改動。
+
+React在更新中這個“找不同”的過程，就叫做Reconciliation(調和)。
+
+Facebook推出React之初打出的旗號就是“高性能”，所以React的Reconciliation過程必須快速。但是，找出兩個樹形結構的區別，從計算機科學的角度來說，真的不是一件快速的過程。
+
