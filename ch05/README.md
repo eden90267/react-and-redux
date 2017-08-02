@@ -426,6 +426,269 @@ React可以對比發現這些屬性和內容的變化，在操作DOM樹上節點
 </ul>
 ```
 
-從直觀來看，只要Zero的新代辦事項創造新的TodoItem並放在第一位，剩下兩個內容為First和Second的TodoItem實例經歷更新過程，但是props沒有改變，shouldComponentUpdate可以幫助這兩個組件不做實質的更新動作。
+從直觀來看，只要Zero的新代辦事項創造新的TodoItem並放在第一位，剩下兩個內容為First和Second的TodoItem實例經歷更新過程，但是因為props沒有改變，所以shouldComponentUpdate可以幫助這兩個組件不做實質的更新動作。
 
-可是實際情況不是這樣。
+可是實際情況不是這樣。如果要讓React按照上面我們構想的方式來做，就必須要找出兩個子組件序列的不同之處，現有的計算出兩個序列差異的算法時間是O(N<sup>2</sup>)，雖然沒有樹形結構比較的O(N<sup>3</sup>)時間複雜度那麼誇張，但是也不適合一個對性能要求很高的場景，所以React選擇看起來很傻的一個辦法，不是尋找兩個序列的精確差別，而是直接挨個比較每個子組件。
+
+在上面的新TodoItem實例插入在第一位的例子中，React會首先認為把text為First的TodoItem組件實例的text改成了Zero，text為Second的TodoItem組件實例的text改成First，最後面多出了一個TodoItem組件實例，text內容為Second。這樣操作的後果就是，現存的兩個TodoItem實例的text屬性被改變了，強迫它們完成一個更新過程，創造出來的新的TodoItem實例用來顯示Second。
+
+理想情況下只需要增加一個TodoItem組件，實際上引發了兩個TodoItem實例的更新，而且，假設有100個TodoItem實例，那就會引發100個TodoItem實例的更新，這明顯就是一個浪費。
+
+看起來很傻，但電腦不是人類，一個簡單的算法就只能用這種方式處理問題。
+
+當然，React並不是沒有意識到這個問題，所以React提供了方法來克服這種浪費，不過需要開發人員寫代碼提供一點小小的幫助，這就是key的作用。
+
+### key的用法
+
+React不會使用一個O(N<sup>2</sup>)時間複雜度的算法去找出前後兩列子組件的差別，默認情況下，在React的眼裡，確定每一個組件序列中的唯一標識就是他的位置，所以它也完全不懂哪些子組件實際上並沒有改變，為了讓React更加“聰明”，就需要開發者提供一點幫助。
+
+在代碼中明確告訴React每個組件的唯一標示，就可以幫助React在處理這個問題時聰明的多，告訴React每個組件“身份證號”的途徑就是key屬性。
+
+假設待辦事項列表JSX：
+
+```js
+<ul>
+  <TodoItem key={1} text="First" completed={false}/>
+  <TodoItem key={2} text="Second" completed={false}/>
+</ul>
+```
+
+每個TodoItem增加了名為key的prop，而且每個key是這個TodoItem實例的唯一id，當新的待辦事項列表變成如下那樣，React的處理方式也會不一樣：
+
+```js
+<ul>
+  <TodoItem key={0} text="Zero" completed={false}/>
+  <TodoItem key={1} text="First" completed={false}/>
+  <TodoItem key={2} text="Second" completed={false}/>
+</ul>
+```
+
+React根據key值，可以知道現在的第二和第三個TodoItem實例其實就是之前的第一和第二個實例，所以React就會把新創建的TodoItem實例插在第一位，對於原有兩個TodoItem實例只用原有的props來啟動更新過程，這樣shouldComponentUpdate就會發生作用，避免無謂的更新操作。
+
+React會提醒開發者不要忘記使用key，同類型子組件出現多個實例時如果沒有key的話，React在運行時會給出警告(瀏覽器的Console)。
+
+```
+Warning: Each child in an array or iterator should have a unique "key" prop. Check the render method of `TodoList`. See https://fb.me/react-warning-keys for more information.
+    in Connect(TodoItem) (at todoList.js:12)
+    in TodoList (created by Connect(TodoList))
+    in Connect(TodoList) (at todos.js:10)
+    in div (at todos.js:8)
+    in Unknown (at TodoApp.js:9)
+    in div (at TodoApp.js:8)
+    in TodoApp (at index.js:12)
+    in Provider (at index.js:11)
+```
+
+在一列子組件中，每個子組件的key值必須唯一，不然就沒有幫助React區分各個組件的身份。而且key值不僅只唯一，這個key值還需要是穩定不變的。
+
+如果透過陣列來產生一組子組件，一個常見錯誤就是用索引值作為key：
+
+```js
+<ul>
+{
+  todos.map((item, index) => (
+    <TodoItem
+      key={index}
+      text={item.text}
+      completed={item.completed}
+    />
+  ))
+}
+</ul>
+```
+
+這麼做非常危險！這樣錯誤的使用key反而會讓React不給出錯誤提示了。
+
+用陣列索引值作為key，不是穩定不變的。這樣就讓React徹底亂套了。
+
+需要注意，雖然key是一個prop，但是接受key的組件並不能讀取到key的值，因為key和ref是React保留的兩個特殊prop，並沒有預期讓組件直接訪問。
+
+## 用reselect提高資料獲取性能
+
+前面例子中，都是透過優化渲染過程來提高性能，既然React和Redux都是透過資料驅動渲染過程，那麼除了優化渲染過程，獲取資料的過程也是一個需要考慮的優化點。
+
+*views/todoList.js*文件，mapStateToProps調用selectVisibleTodos函數從Redux
+Store提供的state中產生渲染需要的資料：
+
+```js
+const selectVisibleTodos = (todos, filter) => {
+  switch (filter) {
+    case FilterTypes.ALL:
+      return todos;
+    case FilterTypes.COMPLETED:
+      return todos.filter(item => item.completed);
+    case FilterTypes.UNCOMPLETED:
+      return todos.filter(item => !item.completed);
+    default:
+      throw new Error('unsupported filter');
+  }
+};
+
+const mapStateToProps = (state) => {
+  return {
+    todos: selectVisibleTodos(state.todos, state.filter)
+  };
+};
+```
+
+作為從Redux
+Store上獲取資料的重要一環，mapStateToProps函數一定要快，從代碼看來，運算本身並沒有什麼可優化空間，要獲取當前應該顯示的待辦事項，就是要根據Redux
+Store狀態樹上的todos和filter兩個欄位上的值計算出來。不過這個計算過程要遍歷todos欄位上的陣列，當陣列比較大時，對於todoList組件的每一次重新渲染都重新計算一遍，就會顯得負擔過重。
+
+### 兩階段選擇過程
+
+既然這個selectVisibleTodos函數計算不可少，那如何優化？
+
+實際上，並不是每一次對TodoList組件的重新渲染都必須要執行selectVisibleTodos中的計算過程，如果Redux
+Store狀態樹上代表所有待辦事項的todos欄位沒有變化，而且代表當前過濾器的filter欄位也沒有變化，那實在沒必要重新遍歷整個todos陣列來計算新的結果，如果上一個計算結果被緩存起來的話，那就可以重用緩存資料。
+
+這就是reselect庫的工作原理：只要相關狀態沒改變，那就直接使用上一次的緩存結果。
+
+reselect庫被用來創造“選擇器”，所謂選擇器，就是接受一個state作為參數的函數，這個選擇器函數返回的資料就是我們某個mapStateToProps需要的結果。
+
+在前面章節，我們已經強調過React組件的渲染函數應該是一個純函數，Redux中的reducer函數也應該是一個純函數，mapStateToProps函數也應該是一個純函數，純函數讓問題清晰而且簡化，不過，現在這個“選擇器”函數不是純函數，它是一種有“記憶力”的函數，運行選擇器函數會有副作用，副作用就是能夠根據以往的運行“記憶”返回“記憶”中的結果。
+
+reselect認為一個選擇器的工作可以分為兩個部分，把一個計算過程分為兩個步驟：
+
+- **步驟1.**
+
+    從輸入參數state抽取第一層結果，將這第一層結果和之前抽取的第一層結果作比較，如果發現完全相同，就沒有必要進行第二部分運算了，選擇器直接把之前第二部分的運算結果返回就可以了。注意，這一部分做的“比較”，就是JavaScript的===操作符比較，如果第一層是對象的話，只有是同一對象才會被認為是相同。
+
+- **步驟2.**
+
+    根據第一層結果計算出選擇器需要返回的最終成果
+
+每次選擇器被調用時，步驟一都會被執行，但步驟一的結果用來判斷是否可以使用緩存的結果，所以不是每次都會調用步驟二的運算。
+
+選擇器就是利用這種緩存結果的方式，避免了沒有必要的資源浪費。
+
+步驟一運算因為每次選擇器都要使用，所以一定要快，運算要非常簡單，最好就是一個映射運算，通常就只是從state參數中得到某欄位的引用就足夠，把剩下的重活累活都交給步驟二去做。
+
+在TodoList這例子中，todos和filter的值直接決定應該顯示什麼樣的待辦事項，所以，很顯然步驟一是獲取todos和filter的值，步驟二就是根據這兩個值進行計算。
+
+```bash
+npm i --save reselect
+```
+
+_src/todos/selector.js_：
+
+```js
+import {createSelector} from 'reselect';
+import {FilterTypes} from "../constants";
+
+const getFilter = (state) => state.filter;
+const getTodos = (state) => state.todos;
+
+export const selectVisibleTodos = createSelector(
+  [getFilter, getTodos],
+  (filter, todos) => {
+    switch (filter) {
+      case FilterTypes.ALL:
+        return todos;
+      case FilterTypes.COMPLETED:
+        return todos.filter(item => item.completed);
+      case FilterTypes.UNCOMPLETED:
+        return todos.filter(item => !item.completed);
+      default:
+        throw new Error('unsupported filter');
+    }
+  }
+);
+```
+
+reselect提供了創造選擇器的createSelector函數，這是一個高階函數，也就是接受函數為參數來產生一個新函數的函數。
+
+第一個參數是一個函數陣列，每個元素代表選擇器步驟一需要做的映射計算：
+
+```js
+const getFilter = (state) => state.filter;
+const getTodos = (state) => state.todos;
+```
+
+步驟一要盡量簡單快捷，所以往往一個Lambda表達式就已足夠。
+
+createSelector函數的第二個參數代表步驟二的計算過程，參數為第一個參數的輸出結果，裡面的邏輯和之前TodoList中的邏輯沒有什麼兩樣，只是這第二個函數不是每次都會調用到。
+
+TodoList模組改用新定義選擇器來獲取待辦事項資料：
+
+```js
+import {selectVisibleTodos} from "../selector";
+
+const mapStateToProps = (state) => {
+  return {
+    todos: selectVisibleTodos(state)
+  };
+};
+```
+
+Redux要求每一個reducer不能修改state狀態，如果要返回一個新的狀態，就必須返回一個新的對象。如此一來，Redux
+Store狀態樹上某個節點如果沒有改變，那麼我們就有信心這個節點下資料沒有改變，應用在reselect中，步驟一的運算就可以確定直接緩存運算結果。
+
+雖然reselect的createSelector創造的選擇器並不是純函數，但是createSelector接受的所有函數都是純函數，雖然選擇器有“記憶”這個副作用，但是只要輸入參數state沒有變化，產生的結果也就沒有變化，表現的卻類似于純函數。
+
+只要Redux
+Store狀態樹上的filter和todos欄位不變，無論怎樣觸發TodoList的渲染，都不會引發沒有必要的遍歷todos字段的運算，性能自然更快。
+
+雖然reselect庫以re開頭，但邏輯上與React/Redux沒有直接關係。實際上，在任何需要這種有記憶的計算場合都可以使用reselect，不過，對於React和Redux組合的應用，reselect無疑能夠提供絕佳的支持。
+
+### 範式化狀態樹
+
+第四章介紹過，Redux
+Store的狀態樹應該設計的盡量扁平，在使用reselect之後，我們可進一步認為，狀態樹的設計應該盡量範式化(Normalized)。
+
+所謂範式化，就是遵照關聯式資料庫的設計原則，減少冗余資料。也就是資料結構設計就是讓資料只存一份，資料冗余造成的後果就是難以保證資料一致性。
+
+與範式化相對，還存在“反範式化”的資料庫設計，這在NoSQL領域是一個慣常的設計風格。反範式化是利用資料冗余來換取讀寫效率，因為關連式資料庫的強項雖然是保持一致，但應用需要的資料形式往往是多個表join之後的結果。多個表往往耗時且在分散式系統中難以應用。
+
+這裏純粹用資料庫的兩種設計理念來類比Redux Store狀態樹的設計策略。
+
+假設我們給Todo應用增加一個Type的概念，可把某個TodoItem歸為某一個Type，而且一個Type有特有的名稱和顏色信息，介面上，用戶可以看到TodoItem顯示為自己所屬Type對應的顏色，TodoItem和Type當然是多對多關係。
+
+如何設計代表TodoItem的狀態樹結構？
+
+使用反範式化的設計，那麼狀態樹上的資料最好是能夠不用計算拿來就能用，在Redux
+Store狀態樹的todos欄位保存的是所有待辦事項資料的陣列，對於每個陣列元素，反範式化設計對象：
+
+```js
+{
+  id: 1,
+  text: '待辦事項1',
+  completed: false,
+  type: {
+    name: '緊急',
+    color: 'red'
+  }
+}
+```
+
+如果要達到資料扁平化，應該是增加兩個欄位，分別是typeName和typeColor。
+
+這種狀態設計的好處就是在渲染TodoItem組件時，從Redux
+Store上獲得的狀態可以直接使用name和color資料。但他的缺點是當需要改變種類型的名稱和顏色時，不得不遍歷所有TodoItem資料來完成改變。反範式化資料結構特點就是讀取容易，修改麻煩。
+
+範式化的資料結構設計：
+
+```js
+{
+  id: 1,
+  text: '待辦事項1',
+  completed: false,
+  typeId: 1
+}
+```
+
+然後在Redux Store上和todos平級的跟結點位置創建一個types欄位，內容是陣列，每個陣列元素代表一個類型：
+
+```js
+{
+  id: 1,
+  name: '緊急',
+  color: 'red'
+}
+```
+
+當TodoItem組件要渲染內容時，從Redux Store狀態樹上todos欄位下獲取的資料是不夠的，為了獲得對應的總類名稱和顏色，需要做一個類似關聯式資料庫的join操作，到狀態樹的type欄位下去尋找對應的typeId的種類資料。
+
+這樣過程當然要花費時間，但改變資料就變得容易。
+
+對於反範式化與範式化的優劣，不難看出範式化方式更合理。雖然join需要花費計算時間，但是應用了reselect之後，大部分情況都會命中緩存，實際上也就沒花費很多計算時間了。
