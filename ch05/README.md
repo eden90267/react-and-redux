@@ -295,10 +295,10 @@ Perf工具，也不再出現浪費的渲染時間。
 
 ### React的調和(Reconciliation)過程
 
-在裝載過程中，React透過render方法在內存中產生了一個樹型的結構，樹上每一個節點代表一個React組件或者原生的DOM元素，這個樹形結構就是所謂的Virtual
+在裝載過程中，React透過render方法在內存中產生了一個樹形的結構，樹上每一個節點代表一個React組件或者原生的DOM元素，這個樹形結構就是所謂的Virtual
 DOM。React根據這個Virtual DOM來渲染產生瀏覽器中的DOM樹。
 
-裝載過程結束後，用戶就可以對網頁進行交互，用戶操作引發了介面更新，網頁需要更新介面，React依然透過render方法獲得一個新的樹型結構Virtual
+裝載過程結束後，用戶就可以對網頁進行交互，用戶操作引發了介面更新，網頁需要更新介面，React依然透過render方法獲得一個新的樹形結構Virtual
 DOM，這時候當然不能完全和裝載過程一樣直接用Virtual DOM去產生DOM樹，不然就和原始的字符串模板一個作法。而且，在真實的應用中，大部分網頁內容的更新都是局部的小改動，如果每個改動都是推倒重來，那樣每次都重新完全生成DOM樹，性能肯定不可接受。
 
 實際上，React更新階段很巧妙對比原有的Virtual DOM和新生成的Virtual DOM，找出兩者的不同之處，根據不同來修改DOM樹，這樣只需做最小的必要改動。
@@ -307,3 +307,125 @@ React在更新中這個“找不同”的過程，就叫做Reconciliation(調和
 
 Facebook推出React之初打出的旗號就是“高性能”，所以React的Reconciliation過程必須快速。但是，找出兩個樹形結構的區別，從計算機科學的角度來說，真的不是一件快速的過程。
 
+按照計算機科學目前的算法研究結果，對比兩個N節點的樹形結構的算法，時間複雜度是O(N<sup>3</sup>)，打個比方，假如兩個樹形結構上各有100節點，那麼找出這兩個樹形結構差別的操作，需要100*100*100次操作，也就是一百萬次量的操作，假如有一千個節點，那麼就是1000*1000*1000次操作，這是一億次的操作當量，這麼巨大數量的操作在強調快速反應的網頁中是不可想像的，所以React不可能採用這樣的算法。
+
+React實際採用的算法需要的時間複雜度是O(N)，因為對比兩個樹形怎麼看都要對比兩個樹形上的節點，似乎也不可能有比O(N)時間複雜度更低的算法。
+
+>**Top**：  
+>O(N)時間複雜度的算法並不是說一定會有N次指令操作，O(N<sup>3</sup>)時間複雜度的算法也不是說這個算法一定會執行N的三次方數量的指令操作，時間複雜度只是對一個算法最好和最差情況下需要的指令操作數量級的估量，這邊不仔細介紹其定義，但是讀者應該了解通常一個O(N<sup>3</sup>)時間複雜度的算法意味著不適合於高性能要求的場合。
+
+React採用的算法肯定不是最精確的，但對於React應對的場景來說，絕對是性能和複雜度的最好折衷，讓這個算法發揮作用，還需要開發者一點配合，讓我們來看一看React的取屬性結果差異算法。
+
+其實React的Reconciliation算法並不複雜，當React要對比兩個Virtual
+DOM的樹形結構的時候，從根節點開始遞迴往下比對，在樹形結構上，每個節點都可以看做一個這個節點以下部分子樹的根節點。所以其實這個對比算法可以從Virtual DOM上任何一個節點開始執行。
+
+React首先檢查兩個樹形的根節點的類型是否相同，根據相同或不同有不同處理方式。
+
+#### 1. 節點類型不同的情況
+
+如果樹形結構根節點類型不相同，那就意味著改動太大了，也不要費心考慮是不是原來那個樹形的根節點被移動到其他地方去了，直接認為原來那個樹形結構已經沒用，可以扔掉，需要重新建構新的DOM樹，原有的樹形上的React組件會經歷"卸載"的生命週期。
+
+這時候，componentWillUnmount方法會被調用，取而代之的組件則會經歷裝載過程的生命週期，組件的componentWillMount、render和componentDidMount方法依次被調用。
+
+也就是說，對於Virtual DOM樹這是一個"更新"的過程，但是卻可能引發這個樹結構上某些組件的"裝載"和"卸載"過程。
+
+example：
+
+```js
+<div>
+  <Todos/>
+</div>
+```
+
+更新
+
+```js
+<span>
+  <Todos/>
+</span>
+```
+
+這樣做比較的時候，div跟span的類型就不一樣，那麼這算法就會認為必須要廢掉之前的div節點，包括下面所有的子節點，一切推倒重來，重新建構一個span節點以及子節點。
+
+很明顯，這是一個巨大的浪費，因為span和div的子節點是一模一樣的Todos組件，但為了避免O(N<sup>3</sup>)的時間複雜度，React必須要選擇一個更簡單更快捷的算法，也就只能採用這種方式。
+
+作為開發者，很顯然一定要避免上面這樣浪費的情景出現。所以，一定要避免作為包裏功能的節點類型被隨意修改。
+
+如果React對比兩個樹形結構的根節點發現類型相同，那麼就覺得可以重用原有節點，進入更新階段，按照下一小節的步驟來處理。
+
+#### 2. 節點類型相同的狀況
+
+如果兩個樹形結構的根節點類型相同，React就認為原來的根節點只需要更新過程，不會將其卸載，也不會引發根節點的重新裝載。
+
+這時，有必要更區分一下節點的類型，節點的類型可分為兩類：一類是DOM元素類型，對應的就是HTML直接支持的元素類型，比如div、span和p；另一類是React組件，也就是利用React庫定製的類型。
+
+對於DOM元素類型，React會保留節點對應的DOM元素，只對樹形結構根節點上的屬性和內容作比對，然後只更新修改的部分。
+
+比如原本節點用JSX表示是這樣：
+
+```js
+<div style={{color: 'red', fontSize: 15}} className="welcome">
+  Hello World
+</div>
+```
+
+改變之後的JSX表示是這樣：
+
+```js
+<div style={{color: 'green', fontSize: 15}} className="farewell">
+  Good Bye
+</div>
+```
+
+React可以對比發現這些屬性和內容的變化，在操作DOM樹上節點的時候，只去修改這些發生變化的部分，讓DOM操作盡可能少。
+
+如果屬性結構的根節點不是DOM元素類型，那就只可能是React組件類型，那麼React做的工作類似，只是React此時並不知道如何更新DOM樹，因為這些邏輯還在React組件之中，React能做的只是根據新節點的props去更新原來根節點的組件實例，引發這個組件實例的更新過程，也就是按照順序引發下列函數：
+
+- shouldComponentUpdate
+- componentWillReceiveProps
+- componentWillUpdate
+- render
+- componentDidUpdate
+
+在這過程中，如果shouldComponentUpdate函數返回false，那麼更新過程就此打住，不再繼續。所以為了保持最大性能，每個React組件類必須要重視shouldComponentUpdate，如果發現沒有必要重新渲染，那就可以直接返回false。
+
+在處理完根節點的對比之後，React的算法會對根節點的每個子節點重複一樣的動作，這時候每個子節點就成為它所覆蓋部分的根節點，處理方式和它的父節點完全一樣。
+
+#### 3. 多個子組件的情況
+
+當一個組件包含多個子組件的情況，React處理方式也非常簡單直接。
+
+拿Todo應用中的待辦事項列表作為例子，假如最初的組件型態用JSX表示是這樣：
+
+```js
+<ul>
+  <TodoItem text="First" completed={false}/>
+  <TodoItem text="Second" completed={false}/>
+</ul>
+```
+
+更新之後，用JSX表示：
+
+```js
+<ul>
+  <TodoItem text="First" completed={false}/>
+  <TodoItem text="Second" completed={false}/>
+  <TodoItem text="Third" completed={false}/>
+</ul>
+```
+
+那麼React會發現多出一個TodoItem，會創建一個新的TodoItem組件實例，這個TodoItem組件實例需要經歷裝載過程，對於前兩個TodoItem實例，React會引發他們的更新過程，但是只要TodoItem的shouldComponentUpdate函數實現恰當，檢查props之後就返回false，就可以避免實質的更新操作。
+
+接下來看另一個例子，在序列前面增加一個TodoItem實例，就會暴露出一個問題：
+
+```js
+<ul>
+  <TodoItem text="Zero" completed={false}/>
+  <TodoItem text="First" completed={false}/>
+  <TodoItem text="Second" completed={false}/>
+</ul>
+```
+
+從直觀來看，只要Zero的新代辦事項創造新的TodoItem並放在第一位，剩下兩個內容為First和Second的TodoItem實例經歷更新過程，但是props沒有改變，shouldComponentUpdate可以幫助這兩個組件不做實質的更新動作。
+
+可是實際情況不是這樣。
