@@ -120,3 +120,306 @@ const BarComponent = addNewPropsHOC(OtherComponent, {bar: 'bar'});
 ```
 
 由此可見，一個高階組件可以在重用在不同的組件上，減少代碼的重複。
+
+#### 2. 訪問ref
+
+在第四章介紹ref我們就已經強調，訪問ref並不是值得推薦的React組件使用方式，在這裡我們只是展示應用高階組件來實現這種方式的可行性。
+
+我們寫一個名為refsHOC的高階組件，能夠獲得被包裏組件的直接應用ref，然後就可以根據ref直接操縱被包裏組件的實例：
+
+```js
+const refsHOC = (WrappedComponent) => {
+  return class HOCComponent extends React.Component {
+    constructor() {
+      super(...arguments);
+    }
+    
+    linkRef= wrappedInstance => {
+      this._root = wrappedInstance;
+    };
+    
+    render() {
+      const props = {...this.props, ref: this.linkRef};
+      return <WrappedComponent {...props}/>
+    }
+  }
+}
+```
+
+這個refHOC的工作原理其實也是增加傳遞給被包裏組件的props，只是利用了ref這個特殊的prop，ref這個prop可以是一個函數，在被包裏組件的裝載過程完成的時候被調用，參數就是被裝載的組件本身。
+
+傳遞給被包裏組件的ref值是一個成員函數linkRef，當linkRef被調用時就得到了被包裏組件的DOM實例，記錄在this._root中。
+
+這樣的高階組件，可以說非常有用，也可以說沒什麼用。說他非常有用，是因為只要獲得了對包裏組件的ref引用，那它基本上就無所不能，因為透過這個引用可以任意操縱一個組件的DOM元素。說它沒什麼用，是因為ref的使用非常容易出問題，我們已經知道最好能用“控制中的組件”(Controlled
+Component)來代替ref。
+
+軟件開發中一個問題有很多解法，可行的解法很多，但合適的解法不多，了解一種可能性並不表示一定要使用它，我們只需要知道高階組件有訪問ref這種可能，並不意味著我們必須要使用這種高階組件。
+
+#### 3. 抽取狀態
+
+其實，我們已經使用過“抽取狀態”的高階組件了，就是react-redux的connect函數，注意connect函數本身不是高階組件，connect函數執行的結果是另一個函數，這個函數才是高階組件。
+
+在傻瓜組件和容器組件的關係中，通常讓傻瓜組件不要管理自己的狀態，只要做一個無狀態的組件就好，所有狀態的管理都交給外面的容器組件，這個模式就是“抽取狀態”。
+
+我們嘗試實現一個簡易版的connect高階組件，代碼結構如下：
+
+```js
+const doNothing = () => ({});
+
+function connect(mapStateToProps = doNothing, mapDispatchToProps = doNothing) {
+  return function(WrappedComponent) {
+    class HOCComponent extends React.Component {
+      // 在這裡定義HOCComponent的生命週期函數
+    }
+    
+    HOCComponent.contextTypes = {
+      store: React.PropTypes.object
+    };
+    return HOCComponent;
+  };
+}
+```
+
+創造的新組件HOCComponent需要利用React的Context功能，所以定義了contextTypes屬性，從Context中獲取名為store的值。
+
+和react-redux的connect一樣，我們connect方法接受mapStateToProps和mapDispatchToProps。返回的React組件類預期能夠訪問一個叫store的context值，在react-redux中，這個context由Provider提供，在組件中我們透過this.context.store就可以訪問到Provider提供的store實例。
+
+為實現類似react-redux功能，HOCComponent組件需要一系列成員函數來維持內部狀態和store同步：
+
+```js
+class HOCComponent extends React.Component {
+  
+  constructor() {
+    super(...arguments);
+    this.state = {};
+  }
+  
+  componentDidMount() {
+    this.context.store.subscribe(this.onChange);
+  }
+  
+  componentWillUnmount() {
+    this.context.store.unsubscribe(this.onChange);
+  }
+  
+  onChange = () => {
+    this.setState({});
+  };
+  
+}
+```
+
+在上面的代碼中，借助store的subscribe和unsubscribe函數，HOCComponent保證每當Redux的Store上狀態發生變化的時候，都會驅動這個組件的更新。
+
+雖然應該返回一個有狀態的組件，但反正真正的狀態存在Redux
+Store上，組件內的狀態存什麼真的不重要，我們使用組件狀態的唯一原因是可以透過this.setState函數來驅動組件的更新過程，所以這個組件的狀態實際上是一個空對象就足夠。
+
+每當React Store上的狀態發生變化時，就透過this.setState函數重設一遍組件的狀態，每次都創造一個新的對象，雖然state沒有任何有意義的值，卻能夠驅動組件的更新過程。
+
+再來看HOCComponent的render函數：
+
+```js
+class HOCComponent extends React.Component {
+  render() {
+    const store = this.context.store;
+    const newProps = {
+      ...this.props,
+      ...mapStateToProps(store.getState()),
+      ...mapDispatchToProps(store.dispatch)
+    };
+    
+    return <WrappedComponent {...newProps} />;
+  }
+}
+```
+
+render中邏輯類似“操控Props”的方式，雖然渲染工作交給了WrappedComponent，但是卻控制住了傳給WrappedComponent的props，因為WrappedComponent預期是一個無狀態的組件，所以能夠渲染什麼完全由props決定。
+
+傳遞給connect函數的mapStateToProps和mapDispatchToProps兩個參數在render函數中被使用，根據執行store.getState函數來得到Redux Store的狀態，透過store.dispatch可以得到傳遞給mapDispatchToProps的dispatch方法。
+
+使用擴展操作符，this.props、mapStateToProps和mapDispatchToProps返回結果被結合成一個對象，傳遞給了WrappedComponent，就是最終渲染結果。
+
+不過，這裡實現的不是完整的connect實現邏輯。比如shouldComponentUpdate沒有實現。
+
+#### 4. 包裝組件
+
+目前為止，透過高階組件產生的新組件，render函數都是直接返回被包裏組件，修改的只是props部分。其實render函數的JSX中完全可以引入其他元素，甚至可以組合多個React組件，這樣就會得到更加豐富多采的行為。
+
+一個實用的例子是給組件添加樣式style：
+
+```js
+const styleHOC = (WrappedComponent, style) => {
+  
+  return class HOCComponent extends React.Component {
+    
+    render() {
+      return (
+        <div start={style}>
+          <WrappedComponent {...this.props} />
+        </div>
+      )
+    }
+    
+  }
+  
+}
+```
+
+用div包起來，添加一個style來定製其CSS屬性，可以直接影響被包裏的組件對應DOM元素的展示樣式。
+
+```js
+const style = {color: red};
+const NewComponent = styleHOC(DemoComponent, style);
+```
+
+### 繼承方式的高階組件
+
+繼承方式的高階組件採用繼承關係關聯作為參數的組件和返回的組件。
+
+我們用繼承方式重新實現一遍removeUserProp這個高階組件：
+
+```js
+function removeUserProps(WrappedComponent) {
+  return class NewComponent extends WrappedComponent {
+    render() {
+      const {user, ...otherProps} = this.prpos;
+      this.props = otherProps;
+      return super.render();
+    }
+  }
+}
+```
+
+代理方式和繼承方式最大的差別，是使用被包裏組件的方式。
+
+代理方式下，render函數中的使用被包裏組件是透過JSX代碼：
+
+```js
+return <WrappedComponent {...otherProps}>
+```
+
+繼承方式下：
+
+```js
+return super.render();
+```
+
+因為我們創造的新組件繼承自傳入的WrappedComponent，所以直接調用super.render就能夠得到渲染出來的元素。
+
+需要注意一下，在代理方式下WrappedComponent經歷了一個完整的生命週期，但在繼承方式下super.render只是生命週期的一個函數而已；在代理方式下產生的新組件和參數組件是兩兩個不同的組件，一次渲染，兩個組件都要經歷各自的生命週期，在繼承方式下兩者合二為一，只有一個生命週期。
+
+在上面例子中我們直接修改了this.props，這實在不是個好作法，實際上，這樣操作可能產生不可預料的結果。
+
+繼承方式的高階組件可以應用於下列場景：
+
+- 操縱prop
+- 操縱生命週期函數
+
+#### 1. 操縱Props
+
+繼承方式的高階組件也可以操縱props，除了上面不安全的修改this.props方法，還可利用React.cloneElement讓組件重新繪製：
+
+```js
+const modifyPropsHOC = (WrappedComponent) => {
+  return class NewComponent extends WrappedComponent {
+    render() {
+      const elements = super.render();
+      const newStyle = {
+        color: (elements && elements.type === 'div') ? 'red' : 'green'
+      };
+      const newProps = {...this.props, style: newStyle};
+      return React.cloneElement(elements, newProps, elements.props.children);
+    }
+  }
+}
+```
+
+上面的高階組件實現的功能首先檢查參數組件的render函數返回結果，如果頂層元素是div，就將其增加一個color為red的style屬性，否則增加color為green的style屬性。最後，我們用React.cloneElement來傳入新的props，讓這些產生的組件重新渲染一遍。
+
+雖然這樣可行，但過程實在非常複雜，唯一用得上的場景就是高階組件需要根據參數組件WrappedComponent渲染結果來決定如何修改props。否則，實在沒有必要用繼承方式來實現這樣的高階組件，使用代理方式來實現操縱prop的功能更加清晰。
+
+#### 2. 操縱生命週期函數
+
+因為繼承方式的高階組件返回的新組件繼承了參數組件，所以可以重新定義任何一個React組件的生命週期函數。
+
+這是繼承方式高階函數特用的場景，代理方式無法修改傳入組件的生命週期函數。
+
+例如，我們可定義一個高階組件，讓參數組件只有在用戶登陸時才顯示：
+
+```js
+const onlyForLoggedinHOC = (WrappedComponent) => {
+  return class NewComponent extends WrappedComponent {
+    render() {
+      if (this.props.loggedIn) {
+        return super.render();
+      } else {
+        return null;
+      }
+    }
+  }
+}
+```
+
+又例如，我們可以重新定義shouldComponentUpdate函數，只要prop中的useCache不為邏輯false就不做重新渲染的動作：
+
+```js
+const cacheHOC = (WrappedComponent) => {
+  return class NewComponent extends WrappedComponent {
+    shouldComponentUpdate(nextProps, nextState) {
+      return !nextProps.useCache;
+    }
+  };
+}
+```
+
+從上面例子的比較可以看出來，各方面看來代理方式都優於繼承方式。
+
+業界有一句老話：“優先考慮組合，然後才考慮繼承”(Composition over Inheritance)。前人誠不欺我，我們應該盡量使用代理方式來構建高階組件。
+
+### 高階組件的顯示名
+
+每個高階組件都會產生一個新的組件，使用這個新組件就丟失掉了參數組件的“顯示名”，為了方便開發和維護，往往需要給高階組件重新定義一個“顯示名”，不然，在debug和日誌中看到的組件名就會莫名其妙。增加“顯示名”的方式就是給高階組件類的displayName賦上一個字符串類型的值。
+
+以react-redux的connect為例，我們希望高階組件的名字包含Connect，同時要包含參數組件WrappedComponent的名字，所以我們對connect高階組件做如下修改：
+
+```js
+function getDisplayName(WrappedComponent) {
+  return WrappedComponent.displayName || WrappedComponent.name || 'Component';
+}
+HOCComponent.displayName = `Connect(${getDisplayName(WrappedComponent)})`;
+```
+
+增加displayName的定義之後，在React Perf等工具看到的組件類名就更有意義。
+
+### 曾經的React Mixin
+
+除了上面提到的高階組件，React還有一個可以提供組件之間復用代碼的功能叫Mixin，不過這已經是一個不建議使用的功能，這裡講一段歷史故事讓大家理解靈活到不靈活的原因。
+
+我們可定義這樣一個包含shouldComponentUpdate函數的Mixin：
+
+```js
+const ShouldUpdateMixin = {
+  shouldComponentUpdate: function() {
+    return !this.props.useCache;
+  }
+}
+```
+
+但是Mixin只能在用React.createClass方式創建的組件類中才能使用，不能再透過ES6語法創建的React組件中使用。
+
+下面是一個使用Mixin的代碼樣例：
+
+```js
+const SampleComponent = React.createClass({
+  mixins: [ShouldUpdateMixin],
+  
+  render: function() {
+    // 實現render函數
+  }
+});
+```
+
+使用React.classClass創建出來的React組件，有mixins欄位的存在，成員方法就“混入”ShouldUpdateMixin這個對象裡的方法。
+
+Mixin因為太靈活，導致難以管理，而且作為一項設計原則，應該盡量把state從組件裡抽取出來，盡量構建無狀態組件，Mixin卻反其道而行，鼓勵往React組件中加入狀態，這也是一個很大的缺陷。
+
