@@ -423,3 +423,101 @@ const SampleComponent = React.createClass({
 
 Mixin因為太靈活，導致難以管理，而且作為一項設計原則，應該盡量把state從組件裡抽取出來，盡量構建無狀態組件，Mixin卻反其道而行，鼓勵往React組件中加入狀態，這也是一個很大的缺陷。
 
+## 以函數為子組件
+
+高階組件並不是唯一可用於提高React組件代碼重用的方法。上一節介紹中可以體會到，高階組件擴展現有組件的方式主要是透過props，增加props或者減少props。以代理方式的高階組件為例，新產生的組件和原有的組件說到底是兩個組件，是父子關係，而兩個React組件之間的通信方式自然是props。因為每個組件都應該透過propTypes聲明自己所支持的props，高階組件利用原組件的props來擴充功能，在靜態代碼檢查上也佔優勢。
+
+但是，高階組件也有缺點，那就是對原組件的props有了固化的要求。也就是說，能不能把一個高階組件作用於某個組件X，要先看一下這個組件X是不是能夠接受高階組件過來的props，如果組件X並不支持這些props，或者對這些props的命名有不同，或者使用方式不是預期的方式，那也就沒有辦法應用這個高階組件。
+
+舉例，假如有這樣一個高階組件addUserProp，它讀取loggedinUser，這是"當前登陸用戶"的資料，把這個資料為新的名為user的prop傳遞給參數組件，代碼如下：
+
+```js
+const addUserProp = (WrappedComponent) => {
+  class WrappingComponent extends React.Component {
+    render() {
+      const newProps =  {user: loggedinUser};
+      return (<WrappedComponent {...this.props} {...newProps}/>);
+    }
+  }
+}
+```
+
+要使用這個高階組件，作為參數的組件必須要能夠接受名為user的prop，不然應用這個高階組件就完全沒有用處。當然，我們可以給高階組件增加其他參數，讓使用者可以定製代表"當前登陸用戶"prop的名字。但是，作為層層傳遞的props，高階組件這種要求參數組件必須和自己有契約的方式，會帶來很多麻煩。
+
+"以函數為子組件"的模式就是為了克服高階組件的這種侷限而生。在這種模式下，實現代碼重用的不是一個函數，而是一個真正的React組件，這樣的React組件有個特點，要求必須有子組件的存在，而且這個子組件必須是一個函數。在組件實例的生命週期函數中，this.props.children引用的就是子組件，render函數會直接把this.props.children當作函數來調用，得到的結果就可以作為render返回結果的一部分。
+
+我們把addUserProp高階函數用"以函數為子組件"的方式重新實現。代碼如下：
+
+```js
+const loggedinUser = 'mock user';
+
+class AddUserProp extends React.Component {
+  render() {
+    const user = loggedinUser;
+    return this.props.children(user);
+  }
+}
+
+AddUserProp.propTypes = {
+  children: React.PropTypes.func.isRequired
+};
+```
+
+AddUserProp首字母大寫，因為現在我們創造的是一個真正的組件類，而不是一個函數。這個類的代碼，和被增強組件的唯一聯繫就是this.props.children，而且this.props.children是函數類型，在render函數中直接調用this.props.children函數，參數就是我們希望傳遞下去的user。
+
+使用這個AddUserProp的靈活之處在於它沒有被增強組件有任何props要求，只是傳遞一個參數過去，至於怎麼使用，完全由作為子組件的函數決定。
+
+例如，我們想要讓一個組件把user顯示出來，代碼如下：
+
+```js
+<AddUserProp>
+  {
+    (user) => <div>{user}</div>
+  }
+</AddUserProp>
+```
+
+或者，我們想要把user作為一個prop傳遞給一個接受user名prop的組件Foo，那只需要用另一個函數作為AddUserProp的子組件就可以，代碼如下：
+
+```js
+<AddUserProp>
+  {
+    (user) => <Foo user={user} />
+  }
+</AddUserProp>
+```
+
+再或者，有一個組件Bar也可以接受prop，但是它接受的prop名為currentUser，使用高階組件就會很麻煩，但是使用AddUserProp在子組件函數中就可以完成從user到currentUser的轉換：
+
+```js
+<AddUserProp>
+  {
+    (user) => <Bar currentUser={user} />
+  }
+</AddUserProp>
+```
+
+從上面三個使用案例可以看得出來，利用這種模式非常靈活，因為AddUserProp預期子組件是一個函數，而函數使得一切皆有可能。
+
+作為AddUserProp子組件的函數，成為了連接父祖件和底層組件的橋樑。一個函數可以包含各種邏輯，這樣就給使用AddUserProp提供了最大的靈活性。"以函數為子組件"模式沒有高階組件那麼多分類和應用場景，因為以函數為連接橋梁的方式已經提供了無數種用例。
+
+### 實例CountDown
+
+上面的AddUserProp太簡單，讓我們利用"以函數為子組件"模式來構建一個複雜一點的例子CountDown，實現倒計時的通用功能。
+
+如果我們要求所有子組件都接受一個固定的prop，那就顯得太不靈活了，該是"以函數為子組件"模式上場的時候了。
+
+我們要定義一個名為CountDown的組件，這個CountDown可以接受一個初始值作為當前數字，然後每隔一秒鐘調用一次函數形式的子組件，同時把當前數字減1，如此重複，直到當前數字減為0。
+
+下面是CountDown組件的代碼，首先CountDown是一個React組件，構造函數代碼如下：
+
+```js
+class CountDown extends React.Component {
+  constructor() {
+    super(...arguments);
+    this.state = {count: this.props.startCount};
+  }
+}
+```
+
+在我們的CountDown中，需要有一個倒數的開始值，所以還需要一個名為sartCount的prop
