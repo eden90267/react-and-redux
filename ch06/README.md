@@ -520,4 +520,147 @@ class CountDown extends React.Component {
 }
 ```
 
-在我們的CountDown中，需要有一個倒數的開始值，所以還需要一個名為sartCount的prop
+在我們的CountDown中，需要有一個倒數的開始值，所以還需要一個名為startCount的prop。CountDown發揮作用靠的是持續驅動子組件重新渲染。要讓子組件重新渲染，CountDown的更新過程要被驅動，所以我們需要CountDown包含狀態，這個狀態叫做count，在構造函數裡我們把它初始化為和startCount一樣的prop值。
+
+當CountDown組件完成裝載時，在componentDidMount函數中透過setInterval函數啟動每秒鐘更新內部狀態的操作，代碼如下：
+
+```js
+componentDidMount() {
+  this.intervalHandle = setInterval(() => {
+    const newCount = this.state.count - 1;
+    if (newCount >= 0) {
+      this.setState({
+        count: newCount
+      });
+    } else {
+      window.clearInterval(this.intervalHandle);
+    }
+  }, 1000);
+}
+```
+
+this.intervalHandle是用來在count為0或CountDown組件實例被卸載的時候，必須取消setInterval引發的重複操作。
+
+值得一說的是，setInterval幫我們把第一個函數參數中的環境this設為組件實例，我們之所以能夠在那個函數中直接透過this訪問this.state和this.setState，是因為我們setInterval第一個參數是ES6的箭頭函數形式，箭頭函數會自動將自身的this綁定為所處環境的this，因為這個箭頭函數所處環境是componentDidMount，所以this自然就是組件實例本身。
+
+componentWillUnmount裡面一定要取消並且清理掉intervalHandle，因為一個CountDown組件完全可能在沒有倒計時到0的時候就被卸載，如果不在componentWillUnmount取消setInterval引發的定時間隔操作，那麼這個定時間隔操作會一直繼續，繼續去驅動子組件的重新執行，這會引發無法預料的後果。
+
+```js
+componentWillUnmount() {
+  if (this.intervalHandle) {
+    window.clearInterval(this.intervalHandle);
+    this.intervalHandle = null;
+  }
+}
+````
+
+在CountDown的render函數中，是這個模式最重要的部分，調用this.props.children，把需要傳遞進去的this.state.count作為參數帶上，代碼如下：
+
+```js
+render() {
+  return this.props.children(this.state.count);
+}
+```
+
+CountDown組件需要兩個prop，其中children代表函數類型的子組件，startCount為初始化的數值，PropType的代碼如下：
+
+```js
+CountDown.propTypes = {
+  children: React.PropTypes.func.isRequired,
+  startCount: React.PropTypes.number.isRequired,
+};
+```
+
+定義好CountDown組件之後，就可以將其應用於任何需要倒計時的場合，所要做的只是定義恰當的函數作為CountDown子組件而已。
+
+一個簡單的倒計時例子：
+
+```js
+<CountDown startCount={10}>
+  {
+    (count) => <div>{count}</div>
+  }
+</CountDown>
+````
+
+新年倒數計時：
+
+```js
+<CountDown startCount={10}>
+  {
+    (count) => <div>{count > 0 ? count : '新年快樂'}</div>
+  }
+</CountDown>
+```
+
+炸彈倒數計時
+
+```js
+<CountDown startCount={10}>
+  {
+    (count) => <Bomb countdown={count} />
+  }
+</CountDown>
+```
+
+可以看到，使用CountDown的方法非常靈活。
+
+從CountDown的例子中我們看出一點端倪，這種“以函數為子組件”的模式非常適合於製作動畫，類似CountDown這樣的例子決定動畫每一幀什麼時候繪製，繪製的時候是什麼樣的資料，作為子組件的函數只要專注於使用參數來渲染就可以了。
+
+react實際中的動畫庫react-motion就大量使用“以函數為子組件”的模式，ch10會詳細介紹。
+
+### 性能優化問題
+
+“以函數為子組件”模式可以讓代碼非常靈活，但是凡事都有優點也有缺點，這種模式也不例外，這種模式的缺點就是難以作性能優化。
+
+每次外層組件的更新過程，都要執行一個函數獲得子組件的實際渲染結果，這個函數確實提供了靈活性，但是也因為每次渲染都要調用函數，無法利用shouldComponentUpdate來避免渲染浪費，使用高階組件則可以直接使用shouldComponentUpdate來避免無謂的重新渲染。
+
+可以讓外層組件定製自己的shouldComponentUpdate，但是每個組件對這個生命週期函數的定義不同，無法使用react-redux那種放之四海皆標準的標準。
+
+要知道，CountDown也會成為其他組件的子組件，作為子組件，更新過程是可以被父組件觸發的，所以我們要預期到CountDown在沒有更改props的情況下被要求開始更新過程，為防止無謂的重新渲染，我們需要shouldComponentUpdate函數：
+
+```js
+shouldComponentUpdate(nextProps, nextState) {
+  return nextState.count !== this.state.count;
+}
+```
+
+另一個性能問題是來自函數形式的子組件，上面例子中，為了代碼清晰，我們都在JSX直接定義箭頭函數或 lambda表達式的方式。
+
+```js
+<CountDown startCount={10}>
+  {
+    (count) => <div>{count}</div>
+  }
+</CountDown>
+```
+
+這樣等同每次渲染都會重新定義一個新的函數，那麼CountDown的shouldComponentUpdate函數應該不應該把this.props.children和nextProps.children比較？
+
+嚴格說是需要的，因為兩個函數都不一樣了，當然應該重新渲染。但如果這麼做的話，就要求使用CountDown的地方不能使用匿名函數，比如，在Countdown的組件類中定義一個showCount函數，接受一個count參數：
+
+```js
+showCount(count) {
+  return <div>{count}</div>;
+}
+```
+
+然後CountDown就可以把showCount作為子組件使用，代碼如下：
+
+```js
+<CountDown startCount={10}/>
+  {this.showCount}
+</CountDown>
+```
+
+這樣就失去了代碼的靈活性，總之魚與熊掌不可兼得，開發者要權衡使用。
+
+雖然“以函數為子組件”有這樣性能上的潛在問題，但是它依然是一個非常棒的模式，實際上，在react-motion動畫庫中大量使用這種模式，也沒有發現特別大的性能問題。要知道，對於動畫功能，性能是最重要的因素，react-motion的用戶群沒有反映存在性能問題，可見這種模式是性能和靈活性的一個恰當折衷。
+
+## 本章小結
+
+這章中我們學習了React高級組件的用法，包括高階組件和“以函數為子組件”的模式，這兩種用法目的都是為了重用代碼。當我們發現有的功能需要在多個組件中重複時，就可以考慮構建一個高階組件或應用“以函數為子組件”的模式。
+
+關於高階組件，有兩種實現模式：一種是代理方式，另一種是繼承方式。通過比較不難發現，代理模式更加容易實現和控制，繼承方式的唯一優勢是可以操縱特定組件的生命週期函數。
+
+和高階組件相比，“以函數為子組件”的模式更加靈活，因為有函數的介入，連接兩個組件的方式可以非常自由，ch10會介紹這種模式在動畫中的運用。

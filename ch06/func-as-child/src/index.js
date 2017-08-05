@@ -1,6 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import registerServiceWorker from './registerServiceWorker';
+import CountDownTimer from "./CountDownTimer";
 
-ReactDOM.render(<App />, document.getElementById('root'));
+ReactDOM.render(
+  <CountDownTimer/>
+  , document.getElementById('root'));
+
 registerServiceWorker();
