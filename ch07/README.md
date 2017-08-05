@@ -309,3 +309,224 @@ action對象函數中完全可以透過fetch發起一個對Server的異步請求
 - 表示異步操作已經開始的action類型，在這例子裡，表示一個請求天氣信息的API請求已經發送給Server的狀態
 - 表示異步操作成功的action類型，請求天氣信息的API調用獲得了正確結果，就會引發這種類型的action
 - 表示異步操作失敗的action類型，請求天氣信息的API調用任何一個環節出了錯誤，無論是網絡錯誤、本地代理Server錯誤或者是遠程Server返回的結果錯誤，都會引發這個類型的action。
+
+當這三種類型的action對象被派發時，會讓React組件進入各自不同的三種狀態：
+
+- 異步操作正在進行中
+- 異步操作已經成功完成
+- 異步操作已經失敗
+
+網絡和遠程Server都是外部實體，是靠不住的，不同環境會有不同的狀態轉換的感知，有必要在視圖上體現三種狀態的區別。
+
+我們需要定義三種action類型，還要定義三種對應的狀態類型。
+
+我們為Weather組件創建一個放置所有代碼的目錄weather，對外接口的文件是*src/weather/index.js*，把這功能模塊的內容導出：
+
+```js
+import * as actions from './actions.js';
+import reducer from './reducer.js';
+import view from './view.js';
+
+export {actions, reducer, view};
+```
+
+在*src/weather/actionTypes.js*定義異步操作需要的三種action類型：
+
+```js
+export const FETCH_STARTED = 'WEATHER/FETCH_STARTED';
+export const FETCH_SUCCESS = 'WEATHER/FETCH_SUCCESS';
+export const FETCH_FAILURE = 'WEATHER/FETCH_FAILURE';
+```
+
+在*src/weather/status.js*文件定義對應的三種異步操作狀態：
+
+```js
+export const LOADING = 'loading';
+export const SUCCESS = 'success';
+export const FAILURE = 'failure';
+```
+
+action類型只能用於action對象中，狀態則是用來表示視圖。為了語意清晰，還是把兩者分開定義。
+
+接下來我們看*src/weather/actions.js*中action構造函數如何定義：
+
+```js
+import {FETCH_STARTED, FETCH_SUCCESS, FETCH_FAILURE} from "./actionTypes";
+
+export const fetchWeatherStarted = () => ({
+  type: FETCH_STARTED
+});
+
+export const fetchWeatherSuccess = (result) => ({
+  type: FETCH_SUCCESS,
+  result
+});
+
+export const fetchWeatherFailure = (error) => ({
+  type: FETCH_FAILURE,
+  error
+});
+```
+
+三個普通的action構造函數fetchWeatherStarted、fetchWeatherSuccess和fetchWeatherFailure沒有什麼特別之處，只是各自返回一個有特定type欄位的普通對象，它們的作用是驅動reducer函數去改變Redux Store上weather欄位的狀態。
+
+關鍵是隨後的異步action構造函數fetchWeather：
+
+```js
+export const fetchWeather = (cityCode) => {
+  return (dispatch) => {
+    const apiUrl = `/data/cityinfo/${cityCode}.html`;
+
+    dispatch(fetchWeatherStarted());
+
+    fetch(apiUrl).then((response) => {
+      if (response.status !== 200) {
+        throw new Error(`Fail to get response with status ${response.status}`);
+      }
+      response.json().then((responseJson) => {
+        dispatch(fetchWeatherSuccess(responseJson.weatherinfo));
+      }).catch((error) => {
+        throw new Error(`Invalid json response: ${error}`);
+      })
+    }).catch((error) => {
+      dispatch(fetchWeatherFailure(error));
+    });
+  };
+};
+```
+
+異步action構造函數的模式就是函數體內返回一個新的函數，這個新的函數可以有兩個參數dispatch和getState，分別代表Redux唯一的Store上的成員函數dispatch和getState。這兩個參數的傳入是redux-thunk中間件的工作，至於redux-thunk如何實現這個功能，我們在後面關於中間件的章節會詳細介紹。
+
+在這裡，我們只要知道異步action構造函數的代碼基本上都是這樣的套路，代碼如下：
+
+```js
+export const sampleAsyncAction = () => {
+  return (dispatch, getState) => {
+    // 在這個函數裡可以調用異步函數，自行決定在合適的時機透過dispatch參數派發出新的action對象。
+  }
+}
+```
+
+在我們的例子中，異步action對象返回的新函數首先派發fetchWeatherStarted產生的action對象。這個action對象是一個普通的action對象，所以會同步地走完單向資料劉，一直走到reducer函數中，引發視圖的改變。同步派發這個action對象的目的是將視圖置於“有異步action還未結束”的狀態，完成這個提示之後，接下來才開始真正的異步操作。
+
+這裏使用fetch來做訪問Server的操作，和前面介紹的weather_react應用中的代碼幾乎一樣，區別只是this.setState改變組件狀態的語句不見了，取而代之的是透過dispatch來派發普通的action對象。也就是說，訪問Server的異步action，最後無論成敗，都要透過派發action對象改變Redux Store上的狀態完結。
+
+在fetch引發的異步操作完成之前，Redux正常工作，不會停留在fetch函數執行上，如果有其他任何action對象被派發，Redux照常處理。
+
+來看一看*src/weather/reducer.js*中的reducer函數：
+
+```js
+import * as Status from "./status";
+import {FETCH_FAILURE, FETCH_STARTED, FETCH_SUCCESS} from "./actionTypes";
+
+export default (state = {status: Status.LOADING}, action) => {
+  switch (action.type) {
+    case FETCH_STARTED:
+      return {status: Status.LOADING};
+    case FETCH_SUCCESS:
+      return {...state, status: Status.SUCCESS, ...action.result};
+    case FETCH_FAILURE:
+      return {status: Status.FAILURE};
+    default:
+      return state;
+  }
+};
+```
+
+在reducer函數中，完成了上面提到的三種action類型到三種狀態類型的映射，增加一個status欄位，代表的就是視圖三種狀態之一。
+
+這裡沒有任何處理異步action對象的邏輯，因為異步action對象在中間件層就被redux-thunk攔截住了，根本沒有機會走到reducer函數中來。
+
+最後看看*src/weather/view.js*中的視圖，也就是React組件部分，首先是無狀態組件函數：
+
+```js
+import * as Status from "./status";
+
+const Weather = ({status, cityName, weather, lowestTemp, highestTemp}) => {
+  switch (status) {
+    case Status.LOADING:
+      return <div>天氣信息請求中...</div>;
+    case Status.SUCCESS:
+      return (
+        <div>
+          {cityName} {weather} 最低氣溫 {lowestTemp} 最高氣溫 {highestTemp}
+        </div>
+      );
+    case Status.FAILURE:
+      return <div>天氣信息裝載失敗</div>;
+    default:
+      throw new Error(`unexpected status ${status}`);
+  }
+};
+```
+
+和weather_react中的例子不同，因為現在狀態都是存儲在Redux Store上，所以這裡Weather是一個無狀態組件，所有的props都是透過Redux store狀態獲得。
+
+對應的mapStateToProps函數代碼如下：
+
+```js
+const mapStateToProps = (state) => {
+  const weatherData = state.weather;
+
+  return {
+    status: weatherData.status,
+    cityName: weatherData.city,
+    weather: weatherData.weather,
+    lowestTemp: weatherData.temp1,
+    highestTemp: weatherData.temp2,
+  };
+};
+```
+
+為了驅動Weather組件的action，我們另外創建一個城市選擇器控件CitySelector，CitySelector很簡單，也不是這個應用功能的重點，我們只需要它提供一個作為視圖的React組件就可以。
+
+CitySelector組件中，定義四個城市的代碼：
+
+```js
+const CITY_CODES = {
+  '北京': 101010100,
+  '上海': 101020100,
+  '廣州': 101280101,
+  '深圳': 101280601
+};
+```
+
+CitySelector組件的render函數根據CITY_CODES的定義畫出四個城市的選擇器，代碼如下：
+
+```js
+class CitySelector extends Component {
+
+  render() {
+    return (
+      <select onChange={this.onChange}>
+        {
+          Object.key(CITY_CODES).map(
+            cityName => <option key={cityName} value={CITY_CODES[cityName]}>{cityName}</option>
+          )
+        }
+      </select>
+    );
+  }
+
+}
+```
+
+其中使用到的onChange函數使用onSelectCity來派發出action：
+
+```js
+onChange = (ev) => {
+  const cityCode = ev.target.value;
+  this.props.onSelectCity(cityCode);
+};
+```
+
+為了讓網頁初始化的時候能夠獲得天氣信息，在componentDidMount派發了對應第一個城市的fetchWeather action對象：
+
+```js
+componentDidMount() {
+  const defaultCity = Object.keys(CITY_CODES)[0];
+  this.props.onSelectCity(CITY_CODES[defaultCity]);
+}
+```
+
+完成代碼後，我們在網頁中就可以看到最終成果。
