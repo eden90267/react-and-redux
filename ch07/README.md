@@ -1,4 +1,4 @@
-# chap07. Redux和Server通信
+# Chap07. Redux和Server通信
 
 無論React還是Redux，工作方式都是靠資料驅動。現實中，應用的資料往往儲存在資料庫中，透過一個API Server暴露出來，網頁要獲得資料，就需要與Server進行通信。
 
