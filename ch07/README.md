@@ -530,3 +530,140 @@ componentDidMount() {
 ```
 
 完成代碼後，我們在網頁中就可以看到最終成果。
+
+### 異步操作的中止
+
+對於訪問Server這樣的異步操作，從發起操作到操作結束，都會有段時間延遲，在這段時間延遲中，用戶可能希望終止異步操作。
+
+從一個請求發出到獲得響應這個過程中，用戶可能等不及了，或是改變主意想要執行另一個動作，用戶就會進行一些操作引發新的請求發往Server，而這就是我們開發者需要考慮的問題。
+
+不等伺服器傳回就進行下一個請求，最後結果是難以預料的，就是看哪個請求先返回結果，而引發頁面嚴重的信息不一致。複雜就複雜在返回的結果和時間都是不可靠的。
+
+解決辦法是在視圖上做文章，比如當一個API請求出去，立刻將城市選擇器鎖住，設為不可改變直到API請求返回，但這樣會帶來用戶體驗不好。用戶希望能隨時選擇城市。也可能會鎖住很久，完全看Server什麼時候響應。
+
+從用戶角度出發，當連續選擇城市的時候，總是希望顯示最後一次選中的城市信息，一個更好的辦法是發出API請求的時候，將之前的API請求全部終止作廢，這樣就保證獲得的有效結果絕對是用戶最後一次選擇結果。
+
+在jQuery，可透過abort方法取消掉一個AJAX請求。
+
+```js
+const xhr = $.ajax(...);
+
+xhr.abort();
+```
+
+對於fetch沒有對應的abort函數的功能，因為fetch返回的是一個Promise對象，在ES6標準中，Promise對象是不存在“中斷”這樣的概念的。
+
+既然fetch不能幫助我們中止一個API請求，那就只能在應用層實現“中斷”的效果，有一個技巧可以解決這個問題，只要修改一下action構造函數。
+
+我們對*src/weather/actions.js*進行一些修改：
+
+```js
+let nextSeqId = 0;
+export const fetchWeather = (cityCode) => {
+  return (dispatch) => {
+    const apiUrl = `/data/cityinfo/${cityCode}.html`;
+    const seqId = ++nextSeqId;
+    const dispatchIfValid = (action) => {
+      if (seqId === nextSeqId) {
+        return dispatch(action);
+      }
+    };
+
+    dispatchIfValid(fetchWeatherStarted());
+
+    fetch(apiUrl).then((response) => {
+      if (response.status !== 200) {
+        throw new Error(`Fail to get response with status ${response.status}`);
+      }
+      response.json().then((responseJson) => {
+        dispatchIfValid(fetchWeatherSuccess(responseJson.weatherinfo));
+      }).catch((error) => {
+        throw new Error(`Invalid json response: ${error}`);
+      })
+    }).catch((error) => {
+      dispatchIfValid(fetchWeatherFailure(error));
+    });
+  };
+};
+```
+
+在action構造函數文件中定義一個文件模組級的nextSeqId變數，這是一個遞增的整數數字，給每一個訪問API的請求做序列編號。
+
+dispatchIfValid這個新定義函數會檢查當前環境的seqId是否等同全局的nextSeqId。相同則繼續使用dispatch函數，不相同，就代表這期間有新的fetchWeather被調用，也就是有新的訪問Server的請求被發出去了，代表當前seqId代表的請求已經過時，直接丟棄掉。
+
+雖然不能真正“終止”一個API請求，但我們可以用這種方法讓一個API請求的結果**被忽略**，達到了中止一個API請求一樣的效果。
+
+如果需要多種API請求，則需要更多類似nextSeqId變量來儲存調用編號。
+
+啟動應用，可以看到無論如何選擇城市，最終顯示的天氣信息和選中的城市都是一致的。
+
+## Redux異步操作的其他方法
+
+redux-thunk不是在Redux中處理異步操作的唯一方式，只不過redux-thunk應該是應用最簡單，也最容易被理解的一種方式。
+
+在Redux社區中，輔助進行異步操作的庫有：
+
+- redux-saga
+- redux-effects
+- redux-side-effects
+- redux-loop
+- redux-observable
+
+上面列舉的是最負盛名的一些庫，這不是完整清單，隨著更多解決方法出現，這個列表肯定還會不斷增長。
+
+### 如何挑選異步操作方式
+
+所有這些輔助庫，都需要透過一個Redux中間件或者Store Enhancer來實現Redux對異步操作的支持，每一個庫都足夠寫一本書出來理解，在這裡我們只是列出一些要點，幫助讀者研究讓Redux支持異步操作的庫時需要考慮哪些方面。
+
+**第一，在Redux的單向資料流中，什麼時機插入異步操作？**
+
+Redux的資料流轉完全靠action來驅動，對於redux-thunk，切入異步操作的時機是在中間件中，但是這不是唯一出入。
+
+透過定製化store Enhancer，可以在action派發路徑上任何一個位置插入異步操作，甚至作為純函數的reducer都可以幫助實現異步操作。異步操作本身就是一種副作用，reducer的執行過程當然不應該產生異步操作，但是reducer函數的返回值卻可以包含對異步操作的“指示“。也就是說，reducer返回的結果可以用純資料的方式表示需要發起一個對Server資源的訪問，由reducer的調用者去真正執行這個訪問Server資源的操作，這樣不違背reducer是一個純函數的原則，在redux-effects中使用的就是這種方法。
+
+很遺憾，很多庫的文檔並沒有解釋清楚自己切入異步操作的位置，這就容易導致很多誤解，需要開發者自己去發掘內在機制。只有確定了切入異步操作的位置，才能了解整個流程，不會犯錯。
+
+**第二，對應庫的大小如何？**
+
+有的庫看起來功能很強大，單獨一個庫就有幾十KB大小的體積，比如redux-saga，發布的最小化代碼有25KB，經過gzip壓縮後也有7KB，要知道React本身被壓縮後也不過是45KB大小。
+
+不同的應用對JavaScript的體積有不同的要求。比如，對於視頻類網站，觀看視頻本來就要求訪問者網路帶寬比較優良，那多出來的這些代碼大小就不會有什麼影響。但是對於一些預期會在網絡環境比較差的情況下訪問的網站，可能就需要計較一下是否值得引入這些庫。
+
+**第三，學習曲線是不是太陡？**
+
+所有這些庫都涉及一些概念和背景知識，導致學習曲線比較陡，比如redux-saga要求開發者能夠理解ES6的async和await語法，redux-observable是基於Rx.js庫開發的，要求使用者已經掌握響應式編程的技巧。
+
+如果一個應用只有一個簡單的API請求，而且使用redux-thunk就能夠輕鬆解決問題，那麼選擇一個需要較陡學習曲線的輔助庫就顯得並不是很恰當；但是如果應用中包含大量的API請求，而且每個請求之間還存在複雜的依賴關係，這時候也許就是考慮使用某個輔助庫的時機。
+
+切記，軟件開發是團隊活動，選用某種技術的時候，不光要看自己能不能接受，還要考慮團隊中其他夥伴是否容易接受這種技術。畢竟，軟件開發的終極目的是滿足產品需求，不要在追逐看似更酷更炫的技術中迷失了初心。
+
+**第四，是否會和其他Redux庫衝突？**
+
+所有這些庫都是以Redux中間件或者Redux Store Enhancer的型態出現，在用Redux的createStore創建store實例時，可能會組合多個中間件和多個Store Enhancer，在Store這個遊戲場上，不同的玩家之間可能會發生衝突。
+
+總之，使用任何一個庫在Redux中實現異步操作，都需要多方面的考慮，到目前為止，業界都沒有一個公認的最佳方法。
+
+相對而言，雖然redux-thunk容易產生代碼臃腫的問題，但真的是簡單又易用，庫也不大，只有幾行代碼而已，第九章會詳細介紹redux-thunk的實現細節。
+
+### 利用Promise實現異步操作
+
+除了redux-thunk，還有另一種異步模式，將Promise作為特殊處理的異步action對象，這種方案比redux-thunk更加易用，複雜度也不高。
+
+fetch函數返回的結果也是一個Promise對象，用Promise來連接訪問API操作和Redux，是天作之合。
+
+不過，對於Promise在Redux中應該如何使用，也沒有形成統一觀點，相關的庫也很多，但是都很簡單，用一個Redux中間件就足夠實現：
+
+- redux-promise
+- redux-promises
+- redux-simple-promise
+- redux-promise-middleware
+
+同樣，這樣一個清單可能也會不斷增長，第九章，我們會創造自己基於promise的中間件來實現異步功能。
+
+## 本章小結
+
+這一章我們介紹了一個網頁應用必須具備的功能，透過API訪問獲取Server資料資源。
+
+無論從Server獲取資料，還是向Server提交資料，都是一個異步的過程。在一個React組件中，我們可利用componentDidMount，在裝載過程結束後發起對Server的請求來獲取資料填充組件內容。
+
+在Redux應用中，狀態要盡量存在Redux的Store上，所以單個React組件訪問Server的方案就不適用了，這時候我們需要在Redux中實現異步操作。最簡單直接的方法是使用redux-thunk這個中間件，但是也有其他選擇，也各有優缺，開發者要了解衡量哪個庫適合自己的應用。
