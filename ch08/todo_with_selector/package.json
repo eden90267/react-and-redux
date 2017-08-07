@@ -1,0 +1,27 @@
+{
+  "name": "todo_with_selector",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^15.6.1",
+    "react-addons-perf": "^15.4.2",
+    "react-dom": "^15.6.1",
+    "react-redux": "^5.0.5",
+    "redux": "^3.7.2",
+    "redux-immutable-state-invariant": "^2.0.0",
+    "reselect": "^3.0.1"
+  },
+  "devDependencies": {
+    "enzyme": "^2.9.1",
+    "react-addons-test-utils": "^15.6.0",
+    "react-scripts": "1.0.10",
+    "redux-mock-store": "^1.2.3",
+    "sinon": "^3.0.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test --env=jsdom",
+    "eject": "react-scripts eject"
+  }
+}

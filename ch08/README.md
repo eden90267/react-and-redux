@@ -19,7 +19,7 @@
 - 從是否需要考慮系統的內部設計角度，可以分為**白盒測試**和**黑盒測試**
 - 從測試對象的級別，可以分為**單元測試**、**集成測試**和**端到端測試**
 - 從測試驗證的系統特性，又可分為**功能測試**、**性能測試**和**壓力測試**  
-...
+  ...
 
 上述的測試種類中，有很多與被測試程序是基於什麼語言、什麼框架沒有任何關係，比如端到端測試。在這裡，我們只探討特定於React和Redux的測試技巧，而體現特殊性的就是單元測試。
 
@@ -27,7 +27,8 @@
 
 單元測試代碼一般都由編寫對應功能代碼的開發者來編寫，開發者提交的單元測試和代碼應該保持一定的覆蓋率，而且必須永遠能夠運行通過。可以說，單元測試是保證代碼質量的第一道防線。
 
-既然說到單元測試，就不得不說測試驅動開發(Test Driven Development，TDD)，有的開發者對測試驅動開發奉為神器，嚴格實踐先寫單元測試測試用例後寫功能代碼，而且單元測試也保證其他開發者不會因為失誤破壞原有的功能；也有開發者對測試驅動開發不以為然，因為寫單元測試的時間是寫功能代碼的好幾倍，當需求發生改變的時候，除了要維護功能代碼，還要維護測試代碼，苦不堪言。
+既然說到單元測試，就不得不說測試驅動開發(Test Driven
+Development，TDD)，有的開發者對測試驅動開發奉為神器，嚴格實踐先寫單元測試測試用例後寫功能代碼，而且單元測試也保證其他開發者不會因為失誤破壞原有的功能；也有開發者對測試驅動開發不以為然，因為寫單元測試的時間是寫功能代碼的好幾倍，當需求發生改變的時候，除了要維護功能代碼，還要維護測試代碼，苦不堪言。
 
 我們這裡只需要正視一點，那就是單元測試應該是讓開發者的工作更輕鬆更高效，而不是成為開發過程中的包袱。
 
@@ -48,3 +49,185 @@ React盡量不存儲狀態，把狀態存儲到Redux的Store上，也就是讓Re
 使用Redux應用，開發者書寫的大部分代碼都屬於action構造函數、reducer或者selector，其中普通的action構造函數和reducer就是純函數，異步action構造函數有副作用所以並不是純函數，在接下來或介紹如何測試異步action構造函數；選擇器雖然包含緩存的副作用，但是對於同樣輸入也有同樣輸出，測試難度不比測試純函數更高。
 
 接下來，我們就介紹單元測試React和Redux程序的方法。
+
+## 單元測試環境搭建
+
+實現單元測試，需搭建單元測試環境，包括下面幾個方面：
+
+- 單元測試框架
+- 單元測試代碼組織
+- 輔助工具
+
+### 單元測試框架
+
+構建React和Redux單元測試框架，有很多選擇，最常見是以下兩種：
+
+- 用Mocha測試框架，但是Mocha並沒有斷言庫，所以往往還要配合Chai斷言庫來使用
+- 使用React的本家Facebook出品的Jest，Jest自帶斷言庫，相當於Mocha+Chai的功能，不過Jest的語法和Chai並不一致
+
+這兩種方法各有千秋，沒有哪一種具有絕對優勢。
+
+在create-react-app創建的應用中字帶Jest庫，所以本書的代碼庫中單元測試都是基於Jest框架編寫的代碼，在任何一個create-react-app產生的應用代碼目錄下，用命令行執行下列代碼，就會進入單元測試介面。
+
+```bash
+npm run test
+```
+
+上面的命令在執行完單元測試後不會結束，而是進入待命狀態。
+
+待命狀態下，任何對相關代碼的修改，都會觸發單元測試的運行，而且Jest很智能，只運行修改代碼影響的單元測試。同時也提供了強行運行所有單元測試代碼，選擇只運行滿足過濾條件的單元測試用例等高級功能。
+
+Jest會自動在當前目錄下尋找滿足下列任一條件的JavaScript文件作為單元測試代碼來執行。
+
+- 文件名以*.test.js*為後綴的代碼文件
+- 存於*__test__*目錄下的代碼文件
+
+一種方式，是在項目的根目錄上創見一個名為test的目錄，和存放功能代碼的src目錄並列，在test目錄下建立和src對應子目錄結構，每個單元測試文件都以.test.js後綴，就能夠被Jest找到。這種方法可以保持功能代碼src目錄的整潔，缺點就是單元測試中引用功能代碼的路徑會比較長。例如，功能代碼在*src/todo/actions.js*文件中，對應的單元測試代碼放在*test/todo/actions.test.js*文件中，這樣一來，在actions.test.js文件中導入被測試的功能代碼，借需要一個很長的路徑名：
+
+```js
+import * as actions from '../../src/todos/actions.js';
+```
+
+另一種存放單元測試代碼的策略是在每一個目錄下創建*__test__*子目錄，用於存放對應這個目錄的單元測試。這種方法因為功能代碼和測試代碼放在一起，容易比對，缺點就是散佈在各個目錄下的*__test__*看起來不是很整潔。
+
+具體用何種方式佈局單元測試代碼文件，開發者可自行決定。本書例子中，更注重功能代碼目錄的整潔，所以測試代碼都放在和src並排的test目錄中，文件以*.test.js*後綴結尾。
+
+### 單元測試代碼組織
+
+單元測試代碼組織最小單位是測試用例(test case)，每一個測試用例考驗的是被測試對象在某一個特定場景下是否有正確的行為。在Jest框架下，每個測試用例用一個it函數代表，it函數第一個參數是一個字符串，代表的就是測試用例名稱，第二個參數是一個函數，包含的就是實際的測試用例過程。
+
+```js
+it('should return object when invoked', () => {
+  // 增加斷言語句
+});
+```
+
+測試用例用it函數代表，這個函數名it指代的“它”就是被測對象，所以第一個參數的用例名稱就應該描述“它”的預期行為，比較好的測試用例名遵循這樣的模式：“(它)在什麼樣的情況下是什麼行為”，應該盡量在it函數的第一個參數中使用這樣有意義的字符串。
+
+為了測試被測對象在多種情況下的行為，就需要創建多個單元測試用例，因此，接下來的問題就是如何組織多個it函數實例，也就是測試套件(test suite)的構建。
+
+一個測試套件由測試用例和其他測試套件構成，很明顯，測試套件可以嵌套使用，於是測試套件和測試用例形成了一個樹形的組織結構。當執行某個測試套件的時候，按照從上到下從外到里的順序執行所有測試用例。
+
+在Jest中用describe函數描述測試套件，一個測試套件的代碼例子如下：
+
+```js
+describe('actions', () => {
+  it('should return object when invoked', () => {
+  });
+  // 可以有更多的it函數調用
+});
+```
+
+describe函數包含與it函數一樣的參數，兩者主要的區別就是describe可以包含it或者另一個describe函數調用，但是it卻不能。
+
+將多個it放到一個describe中的主要目的是為了重用共同的環境設置。比如一組it中都需要創建一個Redux Store實例作為測試的前提條件，讓每個it中都進行這個操作就是重複代碼，這時候就應該把這些it放在一個describe中，然後利用describe下的beforeEach函數來執行共同的創建Redux Store工作。
+
+describe中有如下特殊函數可以幫助重用代碼：
+
+- beforeAll，在開始測試套件之前執行一次
+- afterAll，在結束測試套件中所有測試用例之後執行一次
+- beforeEach，每個測試用例在執行之前都執行一次
+- afterEach，每個測試用例在執行之後都執行一次
+
+Example：如果describe都有用上特殊函數，並且有兩個it測試用例：
+
+beforeAll -> beforeEach -> it -> afterEach -> beforeEach -> it -> afterEach -> afterAll。
+
+>本書中基於Jest創建單元測試代碼，但是如果使用Mocha，會發現代碼很相似，一樣也是使用describe和it來代表測試套件和測試用例，一樣利用beforeEach和beforeEnd執行通用的代碼。但是Mocha沒有beforeAll和afterAll，取而代之的是before和after函數，這是兩個測試框架的微小區別。
+
+### 輔助工具
+
+特定於React和Redux的單元測試，還需要幾個輔助類：
+
+#### 1. Enzyme
+
+要方便測試React組件，就需要用到Enzyme，有意思的是Enzyme並不是Facebook出品，而是AirBnB貢獻出來的開源項目。
+
+要使用Enzyme，需要安裝對應的npm包：
+
+```bash
+npm i ---save-dev enzyme react-addons-test-utils
+```
+
+上面的react-addons-test-utils是Facebook提供的單元測試輔助庫，Enzyme依賴這個庫，但是這個庫的本身功能沒有Enzyme那麼強大。
+
+測試React組件，需要將React組件渲染出來看一看結果，不過Enzyme認為並不是所有的測試過程都需要把React組件的DOM樹都渲染出來，尤其對於包含複雜子組件的React組件，如果深入渲染整個DOM樹，那就要渲染所有子組件，可是子組件可能會有其他依賴關係，比如依賴於某個React Context值，為了渲染這樣的子組件需要耗費很多精力準備測試環境，這種情況下，針對目標組件的測試只要讓它渲染頂層組件就好了，不需要測試子組件。
+
+Enzyme支持三種渲染方法：
+
+- shallow，只渲染頂層React，不渲染子組件，適合只測試React組件的渲染行為
+- mount，渲染完整的React組件包含子組件，借助模擬的瀏覽器環境完成事件處理功能
+- render，渲染完整的React組件，但只產生HTML，不進行事件處理。
+
+例如，對於Filter組件，代碼如下：
+
+```js
+const Filter = () => {
+  <p className="filters">
+    <Link filter={FilterTypes.ALL}>{FilterTypes.ALL}</Link>
+    <Link filter={FilterTypes.COMPLETED}>{FilterTypes.COMPLETED}</Link>
+    <Link filter={FilterTypes.UNCOMPLETED}>{FilterTypes.UNCOMPLETED}</Link>
+  </p>
+}
+````
+
+在測試Filter組件的時候，如果只專注於Filter的功能，只要保證這個渲染結果包含三個Filter組件就足夠，沒有必要把Link組件的內容渲染出來，因為那是Link組件的單元測試應該做的事情，Enzyme這種“淺層渲染”的方法叫shallow。
+
+如果想要渲染完整的DOM樹，甚至想要看看Link中的點擊是否獲得預期結果，可以選擇Enzyme的方法mount，mount不光產生DOM樹，還會加上所有組件的事件處理函數，可以模擬一個瀏覽器中的所有行為。
+
+如果只想檢查React組件渲染的完整HTML，不需要交互功能，可使用Enzyme提供的render函數。
+
+#### 2. sinon.js
+
+React和Redux已經盡量讓單元測試面對的是純函數，但是還是不能避免有些被測試的對象依賴於一些其他因素。比如，對於異步action對象，就會依賴於對API Server的網路請求，毫無疑問在單元測試中不能真正地訪問一個API Server，所以需要模擬網絡訪問的結果。
+
+開源社區存在很多模擬網絡請求的單元測試補助工具，不過對於“模擬”這件事，不應該只是侷限於網洛請求，這裡我們使用一個全能的模擬工具sinon.js。
+
+sinon.js功能強大，可以改變指定對象的行為，甚至改變測試環境的時鐘設置。
+
+```bash
+npm i --save-dev sinon
+```
+
+#### 3. redux-mock-store
+
+雖然Redux簡單易用，但是會在某些情況下並不需要完整的Redux功能，一個模擬的Redux Store使用起來更加方便。比如對於測試一個異步action構造函數時，異步action構造函數會往Store中連續派發action對象，從測試角度並不需要action對象被派發到reducer中，只要能夠檢查action對象被派發就足夠了，這樣就能夠用上redux-mock-store。
+
+```js
+npm i --save-dev redux-mock-store
+```
+
+## 單元測試實例
+
+單元測試的要義是一次只測試系統的一個功能點，現在來看React與Redux應用中各個功能點如何測試：
+
+### action構造函數測試
+
+_todo_with_selector/test/todos/action.test.js_：
+
+```js
+describe('todos/actions', () => {
+  describe('addTodo', () => {
+    // 在這裡添加it測試用例
+  });
+});
+```
+
+接下來針對addTodo測試用例，首先需要驗證addTodo函數執行返回的結果是預期的對象：
+
+```js
+it('should create an action to add todo', () => {
+  const text = 'first todo';
+  const action = addTodo(text);
+
+  expect(action.text).toBe(text);
+  expect(action.completed).toBe(false);
+  expect(action.type).toBe(actionTypes.ADD_TODO);
+});
+```
+
+多次調用addTodo函數返回的對象具有一樣的內容，只有id值是不同的，因為每個新創建的待辦事項都要有唯一的id，對應的單元測試代碼：
+
+```js
+
+```
