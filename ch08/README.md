@@ -326,3 +326,104 @@ it('should timeout', (done) => {
 
 斷言部分我們使用了redux-mock-store所創造Store的getActions函數，注意這個函數並不是Redux的功能，但能夠幫助我們讀取到所有派發到Store上的actions，在單元測試中非常適用。
 
+### reducer測試
+
+reducer是純函數，所以測試非常簡單，所要做的就是創造state和action對象，傳遞給reducer函數，驗證結果即可。
+
+*weather_redux/test/weather/reducer.test.js*中，代碼如下：
+
+```js
+it('should reutrn loading status', () => {
+  const action = actions.fetchWeatherStarted();
+  const newState = reducer({}, action);
+  expect(newState.status).toBe(Status.LOADING);
+});
+```
+
+### 無狀態React組件測試
+
+對於一個無狀態的React組件，可以使用Enzyme的shallow方法來渲染，因為shallow方法只渲染一層，所以不會牽涉子組件的React組件渲染，將單元測試專注於被測試的React組件本身。
+
+以*todo_with_selector/test/filter/views/filter.test.js*：
+
+```js
+import React from 'react';
+import {shallow} from "enzyme";
+
+import Filters from "../../../src/filter/views/filters";
+import Link from "../../../src/filter/views/link";
+import {FilterTypes} from "../../../src/constants";
+
+describe('filters', () => {
+  it('should render three link', () => {
+    const wrapper = shallow(<Filters/>);
+
+    expect(wrapper.contains(<Link filter={FilterTypes.ALL}>{FilterTypes.ALL}</Link>)).toBe(true);
+    expect(wrapper.contains(<Link filter={FilterTypes.COMPLETED}>{FilterTypes.COMPLETED}</Link>)).toBe(true);
+    expect(wrapper.contains(<Link filter={FilterTypes.UNCOMPLETED}>{FilterTypes.UNCOMPLETED}</Link>)).toBe(true);
+  });
+});
+```
+
+習慣上，把Enzyme函數渲染的結果命名為wrapper，對wrapper可以使用contains函數判斷是否包含某個子組件。在這裡，shallow並沒有渲染產生子組件Link的DOM元素，所以完全可以用contains來判斷是否包含Link組件。
+
+這種單元測試不深入渲染React子組件，主要的意義是可以簡化測試過程，因為React子組件的完全渲染可能引入其他的依賴關係。
+
+設想一下，有一個Parent組件，只是一個和Redux無關的無狀態組件，Parent包含一個Child組件，但是Child組件透過react-redux連接到了Redux Store上。那麼，如果在測試Parent組件時要渲染Child組件，那就必須創造一個Store對象，還要用Provider創造一個Context。創造這樣的環境，對測試Parent組件本身沒有任何幫助。但是如果使用shallow淺層渲染，只要在渲染過程中知道創造了Child組件，傳遞給Child的prop都對，這就足夠了，至於Child功能是否正確，那就交給Child的單元測試去驗證，不是Parent單元測試的責任。
+
+### 被連接的React組件測試
+
+如果將應用狀態存放在Redux Store上，配合使用react-redux，所有有狀態的React組件都是透過connect函數產生的組件，被稱為“被連接的組件”。
+
+完整測試案例在_todo_with_selector/test/todos/views/todoList.js_。
+
+TodoList這樣一個組件依賴於一個Redux Store實例，而且能夠實實在在地提供內容，所以不再使用redux-mock-store。而是使用一個貨真價實的Redux Store，需要創造一個store：
+
+```js
+const store = createStore(
+  combineReducers({
+    todos: todosReducer,
+    filter: filterReducer
+  }), {
+    todos: [],
+    filter: FilterTypes.ALL
+  }
+);
+```
+
+為了將這個Store放在React Context，還需要創造Provider，使用Enzyme的mount方法渲染的是Provider包裏起來的TodoList組件，代碼如下：
+
+```js
+const subject = (
+  <Provider store={store}>
+    <TodoList/>
+  </Provider>
+);
+const wrapper = mount(subject);
+```
+
+最終，透過調用store.dispatch函數派發action，然後就可以驗證wrapper對象上的渲染元素是否發生預期改變：
+
+```js
+store.dispatch(actions.addTodo('write more test'));
+expect(wrapper.find('.text').text()).toEqual('write more test');
+```
+
+這個單元測試中，我們想要模擬一次完整的action對象處理週期。為了檢查新增代辦事項的DOM中text，就需要用mount函數而不是shallow函數。
+
+上面創造Provider的過程看起來有一點麻煩，主要是因為TodoList組件還包含了TodoItem組件也是連接到Store組件，如果被測試組件並不包含任何其他鏈結到Store的子組件，那就可以直接在組件中用名為store的prop。
+
+例如，對於TodoItem組件的單元測試，就可以在JSX中直接這樣寫，不用Provider：
+
+```js
+const subject = <TodoItem store={store} {...otherProps}/>;
+const wrapper = mount(subject);
+```
+
+## 本章小節
+
+本章介紹了單元測試的概念，說明了React和Redux應用可測試性強的原因，主要就是因為React和Redux功能可以分解成很多小的函數，這些函數很多還是純函數，容易測試。
+
+選擇單元測試框架，可以使用Mocha+Chai組合，或者使用Jest。
+
+回顧單元測試例子，可以看出來React和Redux的單元測試往往都非常直觀，幾乎可以認為是多餘的。的確，重要的不是代碼容易測試，而是程序的結構非常簡單，簡單到單元測試都顯的沒有必要的地步。

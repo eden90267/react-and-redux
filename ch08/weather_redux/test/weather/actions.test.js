@@ -1,9 +1,9 @@
 import thunk from 'redux-thunk';
 import configureStore from 'redux-mock-store';
 import {stub} from 'sinon';
+
 import * as actions from "../../src/weather/actions";
 import * as actionTypes from "../../src/weather/actionTypes";
-
 
 const middlewares = [thunk];
 const createMockStore = configureStore(middlewares);
@@ -29,6 +29,8 @@ describe('weather/actions', () => {
         })
       });
       stubbedFetch.returns(mockResponse);
+
+      console.log(actions.fetchWeather(1));
 
       return store.dispatch(actions.fetchWeather(1)).then(() => {
         const dispatchedActions = store.getActions();

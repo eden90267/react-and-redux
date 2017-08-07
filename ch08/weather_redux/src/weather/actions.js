@@ -27,7 +27,7 @@ export const fetchWeather = (cityCode) => {
 
     dispatchIfValid(fetchWeatherStarted());
 
-    fetch(apiUrl).then((response) => {
+    return fetch(apiUrl).then((response) => {
       if (response.status !== 200) {
         throw new Error(`Fail to get response with status ${response.status}`);
       }
@@ -35,7 +35,7 @@ export const fetchWeather = (cityCode) => {
         dispatchIfValid(fetchWeatherSuccess(responseJson.weatherinfo));
       }).catch((error) => {
         throw new Error(`Invalid json response: ${error}`);
-      })
+      });
     }).catch((error) => {
       dispatchIfValid(fetchWeatherFailure(error));
     });
