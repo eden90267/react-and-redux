@@ -229,5 +229,100 @@ it('should create an action to add todo', () => {
 多次調用addTodo函數返回的對象具有一樣的內容，只有id值是不同的，因為每個新創建的待辦事項都要有唯一的id，對應的單元測試代碼：
 
 ```js
+it('should have different id for different actions', () => {
+  const text = 'first todo';
+  const action1 = addTodo(text);
 
+  const action2 = addTodo(text);
+  expect(action1.id !== action2.id).toBe(true);
+});
 ```
+
+從上面代碼可看出單元測試的基本套路如下：
+
+1. 預設參數
+2. 調用純函數
+3. 用expect驗證純函數的返回結果
+
+### 異步action構造函數測試
+
+異步action構造函數因為存在副作用，所以單元測試會比普通action構造函數複雜。
+
+一個異步action對象就是一個函數，被派發到redux-thunk中間件時會被執行，產生副作用，以*weather_redux/src/weather/actions.js*異步action對象構造器fetchWeather為例，產生的異步動作被派發之後，會連續派發另外兩個action對象代表fetch開始和結束，單元測試要做的就是驗證這樣的行為。
+
+被測試對象fetchWeather發揮作用需要使用redux-thunk中間件，所以需要一個Redux Store，在fetchWeather函數中還需要調用dispatch函數，而dispatch函數也來自於一個Redux store。但是我們並沒有必要創建一個完整功能的Redux Store，使用redux-mock-store更加合適，因為在單元測試環境下，dispatch函數最好不要做實際的派發動作，只要能夠把被派發的對象記錄下來，留在驗證階段讀取就可以了。
+
+使用redux-mock-store的代碼如下：
+
+```js
+import thunk from 'redux-thunk';
+import configureStore from 'redux-mock-store';
+
+const middlewares = [thunk];
+const createMockStore = configureStore(middlewares);
+```
+
+最後得到的是createMockStore函數，注意createMockStore可以使用Redux中間件，添加了redux-thunk之後可以處理異步action對象。
+
+fetchWeather函數中會調用fetch函數，這個函數的行為是去訪問指定的URL來獲取資源。單元測試應該獨立而且穩定，當然不應該在單元測試中訪問網絡資源，所以需要“篡改”fetch函數的行為，感謝sinon，這樣篡改工作非常簡單：
+
+```js
+describe('fetchWeather', () => {
+  let stubbedFetch;
+  beforeEach(() => {
+    stubbedFetch = stub(global, 'fetch');
+  });
+  afterEach(() => {
+    stubbedFetch.restore();
+  })
+});
+```
+
+透過sinon提供的stub函數來“篡改”函數行為，stub第一個參數是一個對象，第二個參數是這個函數的字符串名，返回一個stub對象，透過這個stub上的對象可以指定被“篡改”函數的行為。透過stub函數實際上可以“篡改”任何一個函數的行為，對fetch這樣的全局函數也不例外，因為全局函數相當於在global對象上的一個函數。
+
+需注意的是，每一個單元測試都應該把環境清理乾淨。所以對一個測試套件慣常的做法是在beforeEach中創造stub對象，在afterEach函數中用stub對象的restore方法恢復被“篡改”函數原本的行為。
+
+fetchWeather函數的測試用例代碼如下：
+
+```js
+it('should dispatch fetchWeatherSuccess action type on fetch success', () => {
+  const mockResponse = Promise.resolve({
+    status: 200,
+    json: () => Promise.resolve({
+      weatherinfo: {}
+    })
+  });
+  stubbedFetch.returns(mockResponse);
+
+  return store.dispatch(actions.fetchWeather(1)).then(() => {
+    const dispatchedActions = store.getActions();
+    expect(dispatchedActions.length).toBe(2);
+    expect(dispatchedActions[0].type).toBe(actionTypes.FETCH_STARTED);
+    expect(dispatchedActions[1].type).toBe(actionTypes.FETCH_SUCCESS);
+  });
+});
+```
+
+在上面的測試用例中，利用beforeEach中創造的stub對象stubbedFetch規定fetch函數被調用時返回一個指定的mockResponse，這樣，fetchWeather函數中的fetch函數行為就完全被操縱，畢竟我們並不需要測試fetch函數的行為，所以只需要讓fetch函數返回我們想要的結果就行。
+
+fetchWeather是一個異步action構造函數，測試一個涉及異步的被測函數時，就不能像測試普通函數一樣預期被測函數執行結束就可以驗證結果了。
+
+上面例子中，雖然mockResponse是透過Promise.resolve函數產生的“創造即已經完結的”Promise對象，但是其then指定的函數依然要等到Node.js的下一個時鐘週期才執行，所以也不能在fetchWeather函數執行完之後就認為異步操作就已經完結。
+
+在Jest中測試異步函數有兩種方法，一種是代表測試用例的函數增加一個參數，習慣上這個參數叫做done，Jest發現這個參數存在就會認為這個參數是一個回調函數，只有這個回調函數被執行才算是測試用例結束。
+
+測試用例使用done參數的例子如下：
+
+```js
+it('should timeout', (done) => {
+});
+```
+
+上面例子中，這個it測試用例最終會因為超時而失敗，因為沒有任何代碼去調用done函數。
+
+除了使用done參數，還有另一個方法，就是讓測試用例函數返回一個Promise對象，這樣也等於告訴Jest這個測試用例是一個異步過程，只有當返回的Promise對象完結的時候，這個測試用例才算結束。
+
+注意，fetchWeather的測試用例返回的並不是store.dispatch函數返回的那個Promise對象，而是經過then函數產生的一個新的Promise對象，所以當Jest獲取的Promise對象被認為是完結時，在then函數中的所有斷言語句絕對已經執行完畢了。
+
+斷言部分我們使用了redux-mock-store所創造Store的getActions函數，注意這個函數並不是Redux的功能，但能夠幫助我們讀取到所有派發到Store上的actions，在單元測試中非常適用。
+
