@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Simulate request animation frame</title>
+    <style>
+        #sample {
+            position: absolute;
+            background: red;
+            width: 100px;
+            height: 100px;
+        }
+    </style>
+</head>
+<body>
+<div id="sample"></div>
+<script>
+  var lastTimeStamp = new Date().getTime();
+  function raf(fn) {
+    var currTimeStamp = new Date().getTime();
+    var delay = Math.max(0, 16 - (currTimeStamp - lastTimeStamp));
+    console.log('delay: ', delay);
+    var handle = setTimeout(function () {
+      fn(currTimeStamp);
+    }, delay);
+    lastTimeStamp = currTimeStamp;
+    return handle;
+  }
+
+  var left = 0;
+  var animateElement = document.getElementById('sample');
+  var startTimestamp = new Date().getTime();
+  function render(timestamp) {
+    left += (timestamp - startTimestamp) / 16;
+    animateElement.style.left = left + 'px';
+    console.log('animateElement.style.left=' + animateElement.style.left);
+    if (left < 400) {
+      raf(render);
+    }
+  }
+
+  raf(render);
+</script>
+</body>
+</html>
