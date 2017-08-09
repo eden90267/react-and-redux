@@ -364,3 +364,110 @@ npm run eject
 ```
 
 "彈射"是不可逆的操作。為了配置webpack我們別無選擇，只能確認。
+
+命令完成後，會發現應用目錄下多了scripts和config兩個目錄，分別包含腳本和配置文件，同時應用目錄下的package.json文件也發生了變化，包含了更多的內容，至此，"彈射"完成，但是功能和"彈射"之前別無二致，要改進功能還需要手工修改一些文件。
+
+有兩個webpack配置，分別代表開發環境和產品環境，我們首先處理開發模式也就是npm start命令啟動的模式下的webpack配置。
+
+_config/webpack.config.dev.js_，找到給module.exports賦值的語句，再給module.exports賦值的對象中，找到output這個欄位，在其中添加上關於chunkFilebname的一行，然後找到plugins欄位，這是一個陣列，在裡面添加一個元素增加CommonsChunkPlugin，代碼修改如下：
+
+```js
+module.exports = {
+  // ...
+  output: {
+    // ...
+    chunkFilename: 'static/js/[name].chunk.js',
+    // ...
+  },
+  plugins: [
+    // ...
+    new webpack.optimize.CommonsChunkPlugin({'common': 'static/js/common.js'})
+  ]
+}
+```
+
+增加的output配置，是告訴webpack給每個分片都產生一個文件，文件名包含模組名稱和後綴".chunk.js"，使用這樣的後綴只是一個通用習慣，並不強制要求，如果改成".page.js"之類也不影響功能。
+
+增加在plugins中的配置是告訴webpack把所有分片中共同的代碼提取出來，放在名為common.js的文件中，也就是圖11-5中存儲的所有分片共同代碼的common.js。
+
+生成的文件都帶上路徑*static/js*，只是為了保持和原有bundle.js文件所在目錄一致。其實這個目錄也可以是任意一個位置。
+
+上面修改只針對開發模式，還要修改產品模式的webpack配置保持一致。
+
+config/webpack.config.prod.js，output已經有正確的chunkFileName配置了，所以只要在plugins中添加下面這行就好：
+
+```js
+new webpack.optimize.CommonsChunkPlugin({'common': 'static/js/common.[chunkhash:8].js'})
+```
+
+產品環境的配置和開發環境有些不同，多出了`[chunkhash:8]`的部分，這是為了讓瀏覽器緩存在文件內容改變時失去效果。
+
+因為產品環境下打包的文件部署出去之後預期會被瀏覽器長時間緩存，所以不能使用固定的文件名，否則後續部署的代碼更新無法被瀏覽器發現。所以每個文件名都會包含一個8位的根據文件內容產生的Hash效果，這樣當文件內容發生改變時，文件名也就發生了變化，對應的URL也就發生變化，瀏覽器就會去下載最新的JavaScript打包資源。
+
+### 動態加載分片
+
+針對webpack的配置只是告訴webpack分片打包，但是webpack沒有"頁面"的概念，還是需要修改JavaScript代碼來確定怎樣按照頁面分片。
+
+繼續我們的應用實例，我們希望Home、About和NotFound頁面都是按需加載的，這三個頁面都應該有自己的分片，它們的內容也就不應該包含在主體的bundle.js文件中。
+
+因為webpack的工作方式是根據代碼中的import語句和require函數來找到所有的文件模組，所以，要讓這三個頁面不出現在bundle.js文件中，我們就不能再直接使用import命令來導入它們。
+
+>**Top**：  
+>對ES語法有一個提議是增加import函數從而實現動態的import，注意動態import是函數形式，代碼類似`import('./pages/Home.js')`，和不帶括號的靜態的import語句不同。目前這個動態import的提議處於ES的Stage3階段，本書的例子沒有使用這種語法，讀者可嘗試使用動態import修改本書的例子取代`require.ensure`。
+
+在*src/Routes.js*中，我們首先注釋或者刪掉針對Home、About和NotFound的import語句：
+
+```js
+import App from "./pages/App";
+// import Home from './pages/Home';
+// import About from './pages/About';
+// import NotFound from './pages/NotFound';
+```
+
+然後，我們在*src/Routes.js*中要利用Route的getComponent屬性異步加載React組件：
+
+```js
+const getHomePage = (location, callback) => {
+  require.ensure([], function (require) {
+    callback(null, require('./pages/Home.js').default);
+  }, 'home');
+};
+const getAboutPage = (location, callback) => {
+  require.ensure([], function (require) {
+    callback(null, require('./pages/About.js').default);
+  }, 'about');
+};
+const getNotFoundPage = (location, callback) => {
+  require.ensure([], function (require) {
+    callback(null, require('./pages/NotFound.js').default);
+  }, '404');
+};
+```
+
+Route的getComponent函數有兩個參數，第一個參數nextState代表匹配到當前Route的信息，不過這裡我們用不上這參數；第二個參數是一個回調函數，回調函數遵從Node.js回調函數風格，第一個參數代表是否有錯誤，第二個參數代表裝載成功的組件，正因為這個回調函數的存在，使得異步加載組件成為可能，我們會在異步加載了對應組件之後再調用這個回調函數。
+
+在這裡，異步加載模組的方法使用require.ensure，ensure是require對象的一個屬性，實際是一個函數。當webpack做靜態代碼分析時，除了特殊處理import和require，也會特殊處理require.ensure，當遇到require.ensure函數調用，就知道需要產生一個動態加載打包文件。
+
+require.ensure函數有三個參數，第一個參數是一個陣列，第二個參數是一個函數，第三個參數是分片模組名。require.ensure所做的事情就是確保第二個函數參數被調用時，第一個參數陣列中所有模組都已經被裝載了。對於我們的應用，頁面模板沒有特殊的依賴關係，所以第一個參數保持一個空陣列就好，要做的只是在第二個參數中透過require語句來裝載對應的頁面文件。
+
+至於require.ensure函數的第三個參數，代表的是模組名，對應的就是上面在webpack配置文件中添加的chunkFilename參數的`[name]`值，如果第三個參數沒有的話，webpack會給每個模組分配一個數字代表的唯一ID作為chunk的名字，為了讓分片文件名清晰，我們在代碼別指定模組名，那麼我們預期最終會有三個分片文件產生，名字分別是：home.chunk.js、about.chunk.js和404.chunk.js。
+
+在Routes參數中使用getComponent而不是component屬性來使用異步加載頁面的函數。
+
+```js
+const Routes = () => (
+  <Router history={history} createElement={createElement}>
+    <Route path="/" component={App}>
+      <IndexRoute getComponent={getHomePage}/>
+      <Route path="home" getComponent={getHomePage}/>
+      <Route path="about" getComponent={getAboutPage}/>
+      <Route path="*" getComponent={getNotFoundPage}/>
+    </Route>
+  </Router>
+);
+```
+
+所以，完成動態加載分片要兩個方面。
+
+- 使用require.ensure讓webpack產生分片打包文件
+- 使用React-Router的getComponent異步加載頁面分片文件
