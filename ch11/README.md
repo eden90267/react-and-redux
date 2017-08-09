@@ -493,3 +493,274 @@ const getPageComponent = (pagePath, chunkName) => (nextState, callback) => {
 現在，我們刷新網頁，訪問[http://localhost:3000]()，瀏覽器的網絡工具中可以看到下載了三個文件：common.js、bundle.js和home.chunk.js，其中home.chunk.js就是特定於Home的分片文件，當我們透過點擊頂欄的About鏈接時，可以看到只有一個新下載的文件about.chunk.js。
 
 ### 動態更新Store的reducer和狀態
+
+在第四章，我們學習過將應用分解為若干功能模組，每個功能模組除了包含React組件，還可以有自己的reducer和被這個reducer修改的Store上的狀態。
+
+當實現動態加載分片時，功能模組會被webpack分配到不同的分片文件中，包含在功能模組中的reducer代碼也會被分配到不同的分片文件。這樣，應用的bundle.js文件中就沒有這些reducer函數的定義，每個應用都有一個唯一的Redux Store，當應用啟動創建Store時，並不知道這個應用中的reducer函數如何定義。所以，當切換到某個頁面的時候，除了要加載對應的React組件，還要加載對應的reducer，否則功能模組無法正常工作。
+
+功能模組依賴於Store上的狀態，所以當頁面切換時，除了要更新reducer，Store上的狀態樹也可能需要做對應改變，才能支持新加載的功能組件。
+
+感謝Redux的結構，讓我們把應用邏輯分散在視圖和reducer，而這兩者並不負責狀態存儲，狀態存儲在一個全局狀態樹上，才使得這種動態加載變得容易。
+
+我們在第8章中介紹過Store Enhancer，並且創造reset增強器，可以在store上添加一個名為reset的函數，這個函數可以替換當前store上的狀態和reducer，現在我們就要把reset增強器應用到我們的例子中去。
+
+為演示更新reducer和狀態的功能，我們在代碼中增加一個具有reducer功能模組，第三章我們實現過一個計數器功能，在這裡我們稍微修改，以第四章功能模組的定義方式放在*src/components/Counter*目錄下。
+
+在*src/components/Counter/index.js*文件中定義功能模組的接口：
+
+```js
+import * as actions from './actions';
+import reducer from './reducer';
+import view, {stateKey} from './view';
+
+export {actions, reducer, view, stateKey};
+```
+
+現在多導出一個stateKey，代表的是這個功能模組需要佔據的Redux全局狀態樹的子樹欄位名，具體值是字符串counter，在view.js中定義，因為視圖中的mapStateToProps函數往往需要直接訪問這個stateKey值。
+
+在*src/components/Counter/actionTypes.js*文件中定義action類型對象：
+
+```js
+export const INCREMENT = 'counter/increment';
+export const DECREMENT = 'counter/decrement';
+```
+
+在*src/components/Counter/actions.js*文件中定義action構造函數：
+
+```js
+import * as ActionTypes from './actionTypes';
+
+export const increment = () => ({
+  type: ActionTypes.INCREMENT
+});
+
+export const decrement = () => ({
+  type: ActionTypes.DECREMENT
+});
+```
+
+在*src/components/Counter/reducer.js*中定義reducer：
+
+```js
+import {INCREMENT, DECREMENT} from "./actionTypes";
+
+export default (state = {}, action) => {
+  switch (action.type) {
+    case INCREMENT:
+      return state + 1;
+    case DECREMENT:
+      return state - 1;
+    default:
+      return state;
+  }
+};
+```
+
+最後，在src/components/Counter/view.js定義視圖，對於Counter無狀態組件的定義：
+
+```js
+import React, { PropTypes } from 'react';
+
+const buttonStyle = {
+  margin: '10px'
+};
+
+export const stateKey = 'counter';
+
+function Counter({onIncrement, onDecrement, value}) {
+  return (
+    <div>
+      <button style={buttonStyle} onClick={onIncrement}>+</button>
+      <button style={buttonStyle} onClick={onDecrement}>-</button>
+      <span>Count: {value}</span>
+    </div>
+  );
+}
+```
+
+這個Counter組件會直接從Store的counter欄位讀取當前的計數值，所以需要定義對應的mapStateToProps和mapDispatchToProps函數：
+
+```js
+const mapStateToProps = (state) => ({
+  value: state[stateKey] || 0
+});
+
+const mapDispatchToProps = (dispatch) => bindActionCreators({
+  onIncrement: increment,
+  onDecrement: decrement
+}, dispatch);
+
+export default connect(mapStateToProps, mapDispatchToProps)(Counter);
+```
+
+可看到mapStateToProps函數需要直接訪問stateKey，所以stateKey雖然在index.js文件導出，但通常要在視圖文件中定義值。
+
+在*src/components/*目錄下定義的都是功能模組，我們將功能模組和頁面嚴格區分開，為展示Counter模組，我們先在*src/pages/CounterPage.js*文件中增加對應的頁面定義：
+
+```js
+import React from 'react';
+import {view as Counter} from '../components/Counter';
+
+const CounterPage = () => {
+  return (
+    <div>
+      <div>Counter</div>
+      <Counter caption="any"/>
+    </div>
+  );
+};
+
+export default CounterPage;
+```
+
+頁面中只顯示一個caption為any的計數器，除此之外和其他頁面定義沒什麼兩樣。
+
+最後，在*src/Routes.js*中增加對CounterPage的Route規則：
+
+```js
+const getCounterPage = (location, callback) => {
+  require.ensure([], function (require) {
+    callback(null, require('./pages/CounterPage.js').default);
+  }, 'counter');
+};
+
+// ...
+<Route path="home" getComponent={getHomePage}/>
+<Route path="counter" getComponent={getCounterPage}/>
+<Route path="about" getComponent={getAboutPage}/>
+```
+
+最後，在*src/components/TopMenu/index.js*頂欄中增加對counter路徑的鏈接：
+
+```js
+<li style={liStyle}><Link to="/counter">Counter</Link></li>
+```
+
+現在，我們可以啟動應用，在瀏覽器上可看到頂欄新添加了Counter鏈接，可點擊此鏈接，顯示計數器頁面。
+
+不過，在計數器頁面中點擊“+”和“-”按鈕，計數並不會變化。這很正常，因為上面代碼只處理視圖，卻沒有處理reducer，reducer不會自動把自己添加到Redux中。
+
+在*src/pages/CounterPage.js*文件裡雖然導入了Counter功能組件，但只使用了view，卻沒有使用reducer。然而，在CounterPage.js直接操作Redux Store似乎超出了它的職責範圍。所以我們只是讓CounterPage.js導出內容中增加reducer，由使用它的模組來操作Redux就好，進行這個操作的模組還需要更新Redux的狀態樹，所以CounterPage.js還需要提供頁面的初始狀態initialState，以及需要初始狀態掛靠的狀態樹欄位名stateKey。
+
+最終的CounterPage.js：
+
+```js
+import React from 'react';
+
+import {view as Counter, stateKey, reducer} from "../components/Counter";
+
+const page = () => {
+  return (
+    <div>
+      <div>Counter</div>
+      <Counter/>
+    </div>
+  );
+};
+
+const initialState = 100;
+export {page, reducer, initialState, stateKey};
+```
+
+為讓初始計數值有別於默認的0，我們Counter組件的計數為100。
+
+在*src/Store.js*，我們引入第八章中定義的名為reset的Store Enhancer，這樣創造出來的store有一個reset的函數，可以更新reducer和狀態。
+
+```js
+import {createStore, applyMiddleware, combineReducers, compose} from 'redux';
+import {routerReducer} from 'react-router-redux';
+
+import resetEnhancer from './enhancer/reset';
+
+const originalReducers = {
+  routing: routerReducer
+};
+const reducer = combineReducers(originalReducers);
+
+const win = window;
+
+const middlewares = [];
+if (process.env.NODE_ENV !== 'production') {
+  middlewares.push(require('redux-immutable-state-invariant').default());
+}
+
+const storeEnhancers = compose(
+  resetEnhancer,
+  applyMiddleware(...middlewares),
+  (win && win.devToolsExtension) ? win.devToolsExtension() : (f) => f,
+);
+
+const initialState = {};
+const store = createStore(reducer, initialState, storeEnhancers);
+store._reducers = originalReducers;
+export default store;
+```
+
+其*/enhancer/reset.js*：
+
+```js
+const RESET_ACTION_TYPE = '@@RESET';
+
+const resetReducerCreator = (reducer, resetState) => (state, action) => {
+  if (action.type === RESET_ACTION_TYPE) {
+    return resetState;
+  } else {
+    return reducer(state, action);
+  }
+};
+
+const reset = (createStore) => (reducer, preloadedState, enhancer) => {
+  const store = createStore(reducer, preloadedState, enhancer);
+
+  const reset = (resetReducer, resetState) => {
+    const newReducer = resetReducerCreator(resetReducer, resetState);
+    store.replaceReducer(newReducer);
+    store.dispatch({type: RESET_ACTION_TYPE, state: resetState});
+  };
+
+  return {
+    ...store,
+    reset
+  }
+};
+
+export default reset;
+```
+
+上面的例子中，store上增加了一個_reducers欄位，這是因為無論如何更改Redux的reducer，都應該包含應用啟動時的reducer，所以我們把最初的reducer儲存下來，在之後每次store的reset函數被調用時，都會用combineReducer來將啟動的reducer含進來。
+
+最後，在src/Routes.js更新一下getCounterPage函數的實現：
+
+```js
+import {combineReducers} from 'redux';
+
+const getCounterPage = (nextState, callback) => {
+  require.ensure([], function (require) {
+    const {page, reducer, stateKey, initialState} = require('./pages/CounterPage');
+
+    const state = store.getState();
+    store.reset(combineReducers({
+      ...store._reducers,
+      counter: reducer
+    }), {
+      ...state,
+      [stateKey]: initialState
+    });
+    callback(null, page);
+  }, 'counter');
+};
+```
+
+在新的getCounterPage函數中，從CounterPage.js文件中不僅獲得了代表視圖的page，還有reducer，以及代表頁面組件初始狀態的initialState和狀態樹欄位名stateKey。
+
+在調用callback通知Router裝載頁面完成之前，要完成更新Redux的reducer和狀態樹的操作。因為reset增強器的幫助，現在store上有一個reset函數，第一個參數是新的reducer，第二個參數是新的狀態。我們不能破壞應用初始化的規約邏輯，也不想丟棄狀態樹上現有的狀態，所以使用擴展操作符增量添加了新的reducer和狀態，然後調用reset函數。
+
+現在瀏覽器重新切換Counter頁面，計數器初始是100，說明我們狀態設置成功，點擊“+”和“-”按鈕能夠引起計數數值的變化，說明reducer也更新成功，我們實現了完整的動態加載功能模組。
+
+## 本章小節
+
+本章介紹了構建多頁面複雜應用的方法，借助React-Router庫的幫助，可以將應用中的不同路徑映射到React組件。
+
+當應用變得廣大時，需要考慮對應的JavaScript代碼進行分片管理，這樣用戶訪問某個頁面的時候需要下載JavaScript大小就可以控制在一個可以接受的範圍內。
+
+代碼分片帶來的一個問題是如何使用分片中定義的reducer和初始狀態，借助Store Enhancer，我們可以在更新視圖的同時，完成對reducer和狀態樹的更新。
