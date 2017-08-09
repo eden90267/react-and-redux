@@ -381,7 +381,7 @@ module.exports = {
   },
   plugins: [
     // ...
-    new webpack.optimize.CommonsChunkPlugin({'common': 'static/js/common.js'})
+    new webpack.optimize.CommonsChunkPlugin({name: 'common', filename: 'static/js/common.js'})
   ]
 }
 ```
@@ -397,7 +397,7 @@ module.exports = {
 config/webpack.config.prod.js，output已經有正確的chunkFileName配置了，所以只要在plugins中添加下面這行就好：
 
 ```js
-new webpack.optimize.CommonsChunkPlugin({'common': 'static/js/common.[chunkhash:8].js'})
+new webpack.optimize.CommonsChunkPlugin({name: 'common', filename: 'static/js/common.[chunkhash:8].js'})
 ```
 
 產品環境的配置和開發環境有些不同，多出了`[chunkhash:8]`的部分，這是為了讓瀏覽器緩存在文件內容改變時失去效果。
@@ -471,3 +471,25 @@ const Routes = () => (
 
 - 使用require.ensure讓webpack產生分片打包文件
 - 使用React-Router的getComponent異步加載頁面分片文件
+
+這個神奇的過程，關鍵在於webpack會對require.ensure函數做特殊處理。而且React-Router透過getComponent函數支持異步加載組件。
+
+讀者看到上面的代碼可能有疑問，給每個頁面的getComponent函數：getHomePage、getAboutPage和getNotFoundPage，這三個函數中的代碼幾乎相同，唯一的區別就是頁面組件的文件位置和模組名。出於避免重複代碼的目的，為什麼不把這三個函數的共同部分提取成一個函數，把差別體現的函數參數中呢？
+
+```js
+const getPageComponent = (pagePath, chunkName) => (nextState, callback) => {
+  require.ensure([], function(require) {
+    callback(null, require(pagePath).default);
+  }, chunkName);
+}
+
+<Route path="home" getComponent={getPageComponent('./pages/Home.js', 'home')}/>
+```
+
+然而，並不能這樣做，因為webpack打包過程是對代碼做靜態掃描的過程，也就是說，webpack工作的時候，我們縮寫的代碼並沒有執行，webpack看到的import和require的參數如果不是字符串而是一個需要運算的表達式，webpack就無從知道表達式運算結果是什麼。
+
+如果require的參數是字符串，那webpack就可以明確知道對應的文件模組位置，一切順利；如果require的參數是一個變數，那麼webpack就無法在靜態掃描狀態下確定哪些文件應該放在對應分片中，分片也就失效了。
+
+現在，我們刷新網頁，訪問[http://localhost:3000]()，瀏覽器的網絡工具中可以看到下載了三個文件：common.js、bundle.js和home.chunk.js，其中home.chunk.js就是特定於Home的分片文件，當我們透過點擊頂欄的About鏈接時，可以看到只有一個新下載的文件about.chunk.js。
+
+### 動態更新Store的reducer和狀態
