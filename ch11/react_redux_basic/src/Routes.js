@@ -1,15 +1,29 @@
 import React from 'react';
-import {Router, Route, browserHistory} from 'react-router';
+import {Router, Route, IndexRoute, browserHistory} from 'react-router';
+import {Provider} from "react-redux";
+import {syncHistoryWithStore} from 'react-router-redux';
 
+import store from './Store';
 import Home from './pages/Home';
 import About from './pages/About';
 import NotFound from './pages/NotFound';
 import App from "./pages/App";
 
-const history = browserHistory;
+
+const createElement = (Component, props) => {
+  return (
+    <Provider store={store}>
+      <Component {...props}/>
+    </Provider>
+  )
+};
+
+const history = syncHistoryWithStore(browserHistory, store);
+// const history = browserHistory;
 const Routes = () => (
-  <Router history={history}>
+  <Router history={history} createElement={createElement}>
     <Route path="/" component={App}>
+      <IndexRoute component={Home}/>
       <Route path="home" component={Home}/>
       <Route path="about" component={About}/>
       <Route path="*" component={NotFound}/>

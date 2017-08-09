@@ -205,3 +205,134 @@ React-Router會渲染外層Route相關的組件，但是會把內層Route的組�
 ```
 
 那麼，訪問Home路徑就變成：[http://localhost:3000/root/home]()，而關於Home、About和NotFount的Route卻不用做任何修改，因為每個Route都只匹配自己這一層的路徑，當App已經匹配root部分之後，Home只需要匹配home部分。
+
+### 默認鏈接
+
+到目前為止，這應用還有一個缺陷，就是當路徑部分為空時，React-Router只匹配中了App組件而已，App組件只是一個包含TopMenu的亮子，裡面什麼也沒有。
+
+當路徑為空的時候，應用也應該顯示有意義的內容，通常對應主頁內容。
+
+React-Router提供了另外一個組件IndexRoute，就和傳統上index.html是一個路徑目錄下的默認頁面一樣，IndexRoute代表一個Route下的默認路由。
+
+```js
+<Router history={history}>
+  <Route path="/" component={App}>
+    <IndexRoute component={Home}/>
+    <Route path="home" component={Home}/>
+    <Route path="about" component={About}/>
+    <Route path="*" component={NotFound}/>
+  </Route>
+</Router>
+```
+
+### 集成Redux
+
+為了實現路由功能，有React-Router就足夠，和Redux並沒有什麼關係。但是我們依然希望用Redux來管理**應用中的狀態**，所以要把Redux添加到應用中去。
+
+首先src/Store.js添加創建Redux Store的代碼：
+
+```js
+import {createStore, compose} from 'redux';
+
+const reducer = f => f;
+const win = window;
+const storeEnhancers = compose(
+  (win && win.devToolsExtension) ? win.devToolsExtension() : (f) => f,
+);
+
+const initialState = {};
+export default createStore(reducer, initialState, storeEnhancers);
+```
+
+上面定義的Store只是一個例子，並沒有添加實際的reducer和初始狀態，主要是使用了Redux Devtools。
+
+使用React-Redux庫的Provider組件，作為資料的提供者，Provider必須居於接受資料的React組件之上。換句話說，要想讓Provider提供的store能夠被所有組件訪問到，必須讓Provider處於組件樹結構的頂層，而React-Router庫的Router組件，也有同樣的需要那麼，兩者都希望自己處於頂端，如何處理？
+
+一種方法是讓Router成為Provider的子組件，例如在應用的入口函數*src/index.js*中代碼修改成下面這樣：
+
+```js
+ReactDOM.render(
+  <Provider store={store}>
+    <Routes/>
+  </Provider>
+  ,
+  document.getElementById('root')
+);
+```
+
+Router可以是Provider的子組件，但是，不能夠讓Provider成為Router的子組件，因為Router的子組件只能是Route或者IndexRoute，否則運行會報錯。
+
+另一方法，是使用Router的createElement屬性，透過給createElement傳遞一個函數，可以定製創建每個Route的過程，這個函數第一個參數Component代表Route對應的組件，第二個參數代表傳入組件的屬性參數。
+
+加上Provider的createElement可以這樣定義：
+
+```js
+import store from './Store';
+
+const createElement = (Component, props) => {
+  return (
+    <Provider store={store}>
+      <Component {...props}/>
+    </Provider>
+  )
+};
+
+const history = browserHistory;
+const Routes = () => (
+  <Router history={history} createElement={createElement}>
+// ...
+```
+
+需要注意的是，Router會對每個Route的構造都調用一遍createElement，也就是每個組件都創造了一個Provider來提供資料，這樣並不會產生性能問題，但如果覺得這樣過於浪費的話，那就使用第一種方法。
+
+第三張我們接觸Redux概念的時候就知道，Redux遵從的一個重要原則就是“唯一資料源”，唯一資料源並不是說所有的資料都要存儲在一個地方，而是說一個特定資料只存在一個地方。以路由為例，所有React-Router，即使結合了Redux，當前路由的信息也是存儲在瀏覽器的URL上，而不是像其他資料一樣存儲在Redux的Store上，這樣做並不違背“唯一資料源”的原則，獲取路由信息的唯一資料源就是當前URL。
+
+不過，如果不是所有應用狀態都存在Store上，就會有很大的缺點，就是當利用Redux Devtools做調試時，無法重現網頁之間的切換，因為當前路由作為應用狀態根本沒有在Store狀態上體現，而Redux Devtools操縱的只有狀態。
+
+為克服這個缺點，我們可利用react-router-redux庫來同步瀏覽器URL和Redux的狀態。顯然，這違反了“唯一資料源”的規則，但是只要兩者絕對保持同步，就不會帶來問題。
+
+react-router-redux庫的工作原理是在Redux Store的狀態樹上routing欄位中保存當前路由信息，因為修改Redux狀態只能透過reducer，所以先要修改*src/Store.js*，增加routing欄位的規約函數routerReducer。
+
+```js
+import {createStore, combineReducers, compose} from 'redux';
+import {routerReducer} from 'react-router-redux';
+
+const reducer = combineReducers({
+  routing: routerReducer
+});
+// ...
+```
+
+reducer需要由action對象驅動，我們在*src/Routes.js*文件中要修改傳給Router的history變量，讓history能夠協同URL和Store上的狀態：
+
+```js
+import {syncHistoryWithStore} from 'react-router-redux';
+
+const history = syncHistoryWithStore(browserHistory, store);
+```
+
+react-router-redux庫提供的syncHistoryWithStore方法將React-Router提供的browserHistory和store關聯起來，當瀏覽器的URL變化的時候，會向store派發action對象，同時監聽store的狀態變化，當狀態樹下routing欄位發生變化，反過來更新瀏覽器的URL。
+
+在Redux Devtools介面上，每當頁面發生切換，可以看到有一個type為@@router/LOCATION_CHANGE的action對象被派發出來，透過跳轉到不同的action對象，透過跳轉到不同的action對象，瀏覽器的URL和介面也會對應變化。
+
+## 代碼分片
+
+借助React-Router我們可以將需要多頁面的應用構建成“單頁應用”，在Server端對任何頁面請求都返回同樣一個HTML，然後由一個打包好的JavaScript處理所有路由等應用邏輯，在create-react-app創造的應用中，由webpack產生的唯一打包JavaScript文件被命名bundle.js。
+
+對於小型應用，按照上面的方式就足夠了，但是，對於大型應用，把所有應用邏輯打包在一個bundle.js文件中的做法就顯得不大合適了，因為會影響用戶感知的性能。
+
+在大型應用中，因為功能很多，若把所有頁面的JavaScript打包到一個bundle.js中，那麼用戶訪問任何一個網頁，都需要下載整個網站應用的功能。雖然瀏覽器的緩存機制可以避免下次訪問時下載重複資源，但是給用戶的第一印象卻打了折扣。
+
+用戶用不到的功能與部分新功能更新都得要下載整個bundle.js，長時間的下載時間會造成用戶體驗降低。
+
+很明顯，當應用變得越來越大後，就不能把所有JavaScript打包到一個bundle.js中。
+
+為了提高性能，一個簡單有效的方法是對JavaScript進行分片打包，然後按需加載。這樣每一個文件可以被控制的比較小。這樣，訪問某個頁面時，只需要下載必須的JavaScript代碼就行，不用下載整個應用邏輯。
+
+那麼，按照什麼原則來對代碼進行分片？
+
+最自然的方式當然就是根據頁面來劃分，每個頁面對應一個，每個頁面也只需要加載那一片分片就行。不過，現實中各個網頁之間肯定有交叉的部分。比如，A頁面和B頁面雖然不同，但是卻都使用了一個共同的組件X，而且對於React應用來說，每個頁面都依賴於React庫，所以至少都有共同的React庫部分代碼，這些共同的代碼沒有必要在各個分片裡重複，需要抽取出來放在一個共享的打包文件中。
+
+最終，理想情況下，當一個網頁被加載，它會獲取一個應用本身的bundle.js文件，一個包含頁面間共同內容的common.js文件，還有一個就是特定於於這個頁面內容的JavaScript文件。
+
+為了實現代碼分片，傳統上需要開發者利用配置文件規定哪些代碼被打包到哪個文件，這是一個費力且有可能出錯的事情。感謝webpack，有了webpack的幫助，實現分片非常簡單。因為webpack的工作方式就是根據代碼中import語句和require方法確定模組之間的依賴關係，所以webpack完全可以發掘所有模組文件的依賴圖表
