@@ -152,7 +152,7 @@ module.exports = {
           {
             test: /\.(js|jsx)$/,
             include: paths.appSrc,
-            loader: require.resolve('babel'),
+            loader: require.resolve('babel-loader'),
             query: {
               cacheDirectory: findCacheDir({
                 name: 'react-scripts'

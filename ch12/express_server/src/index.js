@@ -1,8 +1,12 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import './index.css';
-import App from './App';
-import registerServiceWorker from './registerServiceWorker';
+import { AppContainer } from 'react-hot-loader';
 
-ReactDOM.render(<App />, document.getElementById('root'));
-registerServiceWorker();
+import Routes from './Routes';
+
+ReactDOM.render(
+  <AppContainer>
+    <Routes/>
+  </AppContainer>,
+  document.getElementById('root')
+);
