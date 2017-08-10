@@ -157,4 +157,65 @@ module.exports = app;
 ```
 
 要運行產品模式，必須先透過`npm run
-build`命令編譯產生所有的瀏覽器端JavaScript打包文件，這些打包文件都已經做過優化處理，而且文件名中包含8個字符的Hash值，所以要想確定這些打包文件實際的文件名，需要去讀取轉譯過程中產生的描述文件，描述文件存放在項目目錄下的build/asset-manifest.json中，這個文件內容是JSON形式，大概如下：
+build`命令編譯產生所有的瀏覽器端JavaScript打包文件，這些打包文件都已經做過優化處理，而且文件名中包含8個字符的Hash值，所以要想確定這些打包文件實際的文件名，需要去讀取轉譯過程中產生的描述文件，描述文件存放在項目目錄下的*build/asset-manifest.json*中，這個文件內容是JSON形式，大概如下：
+
+```json
+{
+  "404.js": "static/js/404.248d2b3f.chunk.js",
+  "404.js.map": "static/js/404.248d2b3f.chunk.js.map",
+  "about.js": "static/js/about.39aaf2d1.chunk.js",
+  "about.js.map": "static/js/about.39aaf2d1.chunk.js.map",
+  "common.js": "static/js/common.4b635ff4.js",
+  "common.js.map": "static/js/common.4b635ff4.js.map",
+  "counter.js": "static/js/counter.4b439ada.chunk.js",
+  "counter.js.map": "static/js/counter.4b439ada.chunk.js.map",
+  "home.js": "static/js/home.3fa26940.chunk.js",
+  "home.js.map": "static/js/home.3fa26940.chunk.js.map",
+  "main.js": "static/js/main.d91c4c20.js",
+  "main.js.map": "static/js/main.d91c4c20.js.map"
+}
+```
+
+上面只是一個例子，每個文件名中的8位Hash值隨文件內容改變而改變，任何一點代碼邏輯修改都會導致文件名的不同。
+
+需要獲得頁面應該引用的JavaScript文件，只需讀取*build/asset-manifest.json*文件中*main.js*和*common.js*對應的路徑就行，其他的分片文件比如*home.js*和*404.js*，打包文件*main.js*會按需去動態加載，也就是require.ensure函數調用的時候去加載，無須我們擔心。
+
+在*app.prod.js*中，對於所有HTTP請求，先去static目錄下匹配靜態資源。如果找不到，就會用app.get指定的一個默認路徑處理，"*"默認路徑處理方式就是用ejs模板返回一個定製的HTML網頁。
+
+在server/views/index.ejs文件中是模板文件：
+
+```ejs
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="shortcut icon" href="<%= PUBLIC_URL %>favicon.ico">
+    <title><%= title %></title>
+</head>
+<body>
+<div id="root"></div>
+<script src="<%= PUBLIC_URL + assetManifest['common.js'] %>"></script>
+<script src="<%= PUBLIC_URL + assetManifest['main.js'] %>"></script>
+</body>
+</html>
+```
+
+目前，這個模板文件只渲染一個div作為瀏覽器端React的舞台，另外引入*common.js*和*main.js*對應的實際JavaScript路徑，產生的內容和`npm
+start`沒有差別，這只是一個階段性的小目標，後面我們會讓這個模板包含真正的伺服器端渲染內容。
+
+最後我們在package.json中的scripts增加一個指令：
+
+```json
+"start_prod": "NODE_ENV=production node server/index.js"
+```
+
+就可以在命令行透過`npm run start_prod`來啟動"產品模式"的應用了，這次的應用連接是在[http://localhost:9000]()，但是每次這樣修改代碼後，都要先運行`npm run build`編譯產生打包文件，實在很麻煩，所以大部分時間開發者還是要在"開發模式"下運行程序，為了達到便於開發目的，相對應的代碼server/app.dev.js就要麻煩很多。
+
+### 熱加載
+
+在create-react-app產生應用的npm start指令下，每次對任何代碼的修改，都會讓瀏覽器中頁面自動刷新，這樣當然會讓我們省去了手動刷新的麻煩，但是，有時候開發者並不想要這樣，比如，我們發現了一個Bug，一個最普通不過的Debug過程就是，修改一點代碼，看看問題修復沒有，沒有就再修改一點代碼，看看修復沒有...直到問題消失。不過，有的Bug很詭異，要在同一網頁裝載完成後做很多次操作之後才能複現，如果每改一點代碼網頁就刷新一次，開發者又要重複多次操作來看看是否修復了這個Bug，如果沒有重來，又要手工重複多次操作...這樣頁面刷新就會顯得很煩。
+
+試想，既然在React中遵守`UI=render(state)`這樣的公式，
