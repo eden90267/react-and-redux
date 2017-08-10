@@ -12,6 +12,9 @@ const ModuleScopePlugin = require('react-dev-utils/ModuleScopePlugin');
 const getClientEnvironment = require('./env');
 const paths = require('./paths');
 
+const findCacheDir = require("find-cache-dir");
+const ManifestPlugin = require('webpack-manifest-plugin');
+
 // Webpack uses `publicPath` to determine where the app is being served from.
 // In development, we always serve from the root. This makes config easier.
 const publicPath = '/';
@@ -43,6 +46,9 @@ module.exports = {
     // the line below with these two lines if you prefer the stock client:
     // require.resolve('webpack-dev-server/client') + '?/',
     // require.resolve('webpack/hot/dev-server'),
+    // require.resolve('react-dev-utils/webpackHotDevClient'),
+    'webpack-hot-middleware/client',
+    'react-hot-loader/patch',
     require.resolve('react-dev-utils/webpackHotDevClient'),
     // We ship a few polyfills by default:
     require.resolve('./polyfills'),
@@ -143,6 +149,19 @@ module.exports = {
             },
           },
           // Process JS with Babel.
+          {
+            test: /\.(js|jsx)$/,
+            include: paths.appSrc,
+            loader: require.resolve('babel'),
+            query: {
+              cacheDirectory: findCacheDir({
+                name: 'react-scripts'
+              }),
+              plugins: [
+                'react-hot-loader/babel'
+              ]
+            }
+          },
           {
             test: /\.(js|jsx)$/,
             include: paths.appSrc,
@@ -248,6 +267,9 @@ module.exports = {
     // You can remove this if you don't use Moment.js:
     new webpack.IgnorePlugin(/^\.\/locale$/, /moment$/),
     new webpack.optimize.CommonsChunkPlugin({name: 'common', filename: 'static/js/common.js'}),
+    new ManifestPlugin({
+      fileName: 'asset-manifest.json'
+    }),
   ],
   // Some libraries import Node modules but don't use them in the browser.
   // Tell Webpack to provide empty mocks for them so importing them works.

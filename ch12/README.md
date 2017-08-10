@@ -218,4 +218,142 @@ start`沒有差別，這只是一個階段性的小目標，後面我們會讓�
 
 在create-react-app產生應用的npm start指令下，每次對任何代碼的修改，都會讓瀏覽器中頁面自動刷新，這樣當然會讓我們省去了手動刷新的麻煩，但是，有時候開發者並不想要這樣，比如，我們發現了一個Bug，一個最普通不過的Debug過程就是，修改一點代碼，看看問題修復沒有，沒有就再修改一點代碼，看看修復沒有...直到問題消失。不過，有的Bug很詭異，要在同一網頁裝載完成後做很多次操作之後才能複現，如果每改一點代碼網頁就刷新一次，開發者又要重複多次操作來看看是否修復了這個Bug，如果沒有重來，又要手工重複多次操作...這樣頁面刷新就會顯得很煩。
 
-試想，既然在React中遵守`UI=render(state)`這樣的公式，
+試想，既然在React中遵守`UI=render(state)`這樣的公式，在代碼更新之後，如果只更新render的邏輯，而不去碰state，那該有多好！那樣當發現render在某種state下暴露出bug，只需保持state不變，反覆替換render就可以驗證bug是否被修復。
+
+對於上面的Debug的過程，如果每次代碼更改的時候，不要去刷新網頁，而是讓網頁中的React組件渲染代碼換成新的就行。因為在Redux框架下，我們把狀態存在了Store上而不是在React組件中，所以這種替換完全可行。這種方式，叫做**熱加載**(Hot Load)。
+
+目前create-react-app不支持熱自動加載，但次我們現在自建伺服器端，也就不受影響可以自己實現熱自動加載了。
+
+為了實現熱自動加載，我們需要兩個Express中間件，一個叫webpack-dev-middleware，用於動態運行webpack生成打包文件，另一個叫webpack-hot-middleware，這個用於處理來自瀏覽器端的熱加載請求，還需要一個babel裝載起react-hot-loader，用於處理React組件的熱自動加載。
+
+```bash
+yarn add -D webpack-dev-middleware webpack-hot-middleware react-hot-loader
+```
+
+然後我們要修改*config/webpack.config.dev.js*，我們的開發模式伺服器依然以這個文件作為webpack的配置：
+
+默認的開發模式沒有產生靜態資源說明文件，但是我們的頁面模板文件需要說明文件來獲取JavaScript打包文件路徑，所以，首先在文件頂部導入ManifestPlugin，然後在plugins的部分添加ManifestPlugin實例，參數指定了產生asset-manifest.json，這和npm build腳本產生的資源說明文件是一致的：
+
+```js
+const ManifestPlugin = require('webpack-manifest-plugin');
+
+plugins: [
+  // ...
+  new ManifestPlugin({
+    fileName: 'asset-manifest.json'
+  }),
+]
+```
+
+然後，在entry部分刪掉或者注釋掉原有的webpackHotDevClient，因為我們不想要網頁自動刷新了，用另一個webpack-hot-middleware/client來取代它：
+
+```js
+// require.resolve('react-dev-utils/webpackHotDevClient'),
+'webpack-hot-middleware/client',
+```
+
+在loaders部分，增加react-hot應用：
+
+Add 'react-hot-loader/patch' to entry array (anywhere before paths.appIndexJs).
+
+```js
+entry: [
+   'react-hot-loader/patch',
+   require.resolve('react-dev-utils/webpackHotDevClient'),
+   require.resolve('./polyfills'),
+   paths.appIndexJs
+],
+```
+
+Add 'react-hot-loader/babel' to Babel loader configuration.
+
+```js
+{
+  test: /\.(js|jsx)$/,
+  include: paths.appSrc,
+  loader: require.resolve('babel'),
+  query: {
+    cacheDirectory: findCacheDir({
+      name: 'react-scripts'
+    }),
+    plugins: [
+      'react-hot-loader/babel'
+    ]
+  }
+},
+```
+
+為了讓熱加載有效，還需要保證webpack.HotModuleReplacementPlugin存在於plugins中，默認配置已經有這插件，所以無需修改。
+
+最後，我們增加新的*server/app.dev.js*：
+
+```js
+const express = require('express');
+const path = require('path');
+
+const webpack = require('webpack');
+const webpackConfig = require('../config/webpack.config.dev');
+const compiler = webpack(webpackConfig);
+const webpackDevMiddleware = require('webpack-dev-middleware')(
+  compiler,
+  {
+    noInfo: true,
+    publicPath: webpackConfig.output.publicPath
+  }
+);
+```
+
+為了讓express伺服器支持開發者的工作，需要使用新安裝的兩個中間件，而這兩個中間件都需要webpack作為支持，我們在JavaScript代碼中創建webpack實例，指定配置文件就是config目錄下的*webpack.config.dev.js*，和`npm start`使用的配置文件相同，習慣上，webpack實例的變量名被稱為compiler。
+
+在Express伺服器啟動的時候，webpack-dev-middleware根據webpack來編譯生成打包文件，之後每次相關文件修改的時候，就會對應更新打包文件。因為更新過程只需要重新編譯更新的文件，這個速度會比啟動時的完全編譯過程快很多，當項目文件量很大的時候尤其突出，這就是在開發模式中使用webpack-dev-middleware的意義。
+
+而且，webpack-dev-middleware並沒有將產生的打包文件存放在真實的文件系統中，而是存放在內存中的虛擬文件系統，所以要獲取資源描述文件不能像產品環境那樣直接require就行，而是要讀取webpack-dev-middleware實例中的虛擬文件系統，對應的函數定義如下：
+
+```js
+function getAssetManifest() {
+  const content = webpackDevMiddleware.fileSystem.readFileSync(__dirname + '/../build/asset-manifest.json');
+  return JSON.parse(content);
+}
+```
+
+雖然webpack-dev-middleware中間件能夠完成實時更新打包文件，但是這只發生在伺服器端，只有當瀏覽器刷新重新向伺服器請求資源時才能得到更新的打包文件，而webpack-hot-middleware就更進一步，無需網頁刷新，能夠把代碼更新“推送”到網頁之中。
+
+使用兩個Express中間件的代碼如下：
+
+```js
+const app = express();
+app.use(express.static(path.resolve(__dirname, '../build')));
+app.use(webpackDevMiddleware);
+app.use(require('webpack-hot-middleware')(compiler, {
+  log: console.log,
+  path: '/__webpack_hmr',
+  heartbeat: 10 * 1000
+}));
+```
+
+webpack-hot-middleware的工作原理是讓網頁建立一個websocket鏈接到伺服器，伺服器支持websocket的路徑由path參數指定，我們例子中就是*/__webpack_hmr*。每次有代碼文件發生改變，就會有消息推送到網頁中，網頁就會發出請求獲取更新的內容。
+
+最後，和“產品模式”的*server/app.prod.js*一樣，需要用app.get指定一個默認的路由處理方式，對於所有非靜態資源都返回一個ejs模板的渲染結果：
+
+```js
+app.get('*', (req, res) => {
+  const assetManifest = getAssetManifest();
+  return res.render('index', {
+    title: 'Sample React App',
+    PUBLIC_URL: '/',
+    assetManifest
+  });
+});
+app.set('view engine', 'ejs');
+app.set('views', path.resolve(__dirname, 'views'));
+
+module.exports = app;
+```
+
+在package.json中的script增加：
+
+```json
+"start:isomorphic": "NODE_ENV=development node server/index.js"
+```
+
+然後，我們就可以在命令行用`npm start:isomorphic`命令啟動開發模式應用。
