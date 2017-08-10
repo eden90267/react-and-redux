@@ -104,6 +104,12 @@ Node.js只是一個JavaScript的運行環境，提供的API非常底層，所以
 
 ### 設置Node.js和Express
 
+```bash
+create-react-app express_server
+cd express_server
+npm install --save-dev --save-exact react-scripts@0.9.0
+```
+
 create-react-app就算進行了"彈出"操作，這樣我們終於獲得任意定製webpack的自由，不過應用啟動腳本npm
 start依然是create-react-app生成的，啟動之後雖然也是基於Node.js的伺服器端在運行，但是只是簡單地對請求返回public目錄下的index.html，無法訂製伺服器端內容，所以只能自己動手創造新的啟動腳本。
 
