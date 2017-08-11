@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {Component} from 'react';
 import {Router, Route, IndexRoute, browserHistory} from 'react-router';
 import {Provider} from "react-redux";
 import {syncHistoryWithStore} from 'react-router-redux';
@@ -51,16 +51,23 @@ const getNotFoundPage = (nextState, callback) => {
 
 const history = syncHistoryWithStore(browserHistory, store);
 // const history = browserHistory;
-const Routes = () => (
-  <Router history={history} createElement={createElement}>
-    <Route path="/" component={App}>
-      <IndexRoute getComponent={getHomePage}/>
-      <Route path="home" getComponent={getHomePage}/>
-      <Route path="counter" getComponent={getCounterPage}/>
-      <Route path="about" getComponent={getAboutPage}/>
-      <Route path="*" getComponent={getNotFoundPage}/>
-    </Route>
-  </Router>
+const routes = (
+  <Route path="/" component={App}>
+    <IndexRoute getComponent={getHomePage}/>
+    <Route path="home" getComponent={getHomePage}/>
+    <Route path="counter" getComponent={getCounterPage}/>
+    <Route path="about" getComponent={getAboutPage}/>
+    <Route path="*" getComponent={getNotFoundPage}/>
+  </Route>
 );
+class Routes extends  Component {
+  render() {
+    return (
+      <Router history={history} createElement={createElement}>
+        {routes}
+      </Router>
+    );
+  }
+}
 
 export default Routes;

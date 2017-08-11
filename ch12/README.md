@@ -260,32 +260,11 @@ plugins: [
 
 在loaders部分，增加react-hot應用：
 
-Add 'react-hot-loader/patch' to entry array (anywhere before paths.appIndexJs).
-
-```js
-entry: [
-   'react-hot-loader/patch',
-   require.resolve('react-dev-utils/webpackHotDevClient'),
-   require.resolve('./polyfills'),
-   paths.appIndexJs
-],
-```
-
-Add 'react-hot-loader/babel' to Babel loader configuration.
-
 ```js
 {
-  test: /\.(js|jsx)$/,
+  test: /\.js$/,
   include: paths.appSrc,
-  loader: require.resolve('babel'),
-  query: {
-    cacheDirectory: findCacheDir({
-      name: 'react-scripts'
-    }),
-    plugins: [
-      'react-hot-loader/babel'
-    ]
-  }
+  loader: 'react-hot'
 },
 ```
 
@@ -363,3 +342,52 @@ module.exports = app;
 ```
 
 然後，我們就可以在命令行用`npm start:isomorphic`命令啟動開發模式應用。
+
+將src/pages/Home.js文件的`<div>Home</div>`改成`<div>主頁</div>`，可以發現，在瀏覽器無須刷新網頁，對應頁面自動發生變化。
+
+瀏覽器console，可以看到整個自動更新的過程。
+
+```
+[HMR] bundle rebuilding
+[HMR] bundle rebuilt in 316ms
+[HMR] Checking for updates on the server...
+[HMR] Updated modules:
+[HMR]  - ./src/pages/Home.js
+[HMR] App is up to date.
+Warning: [react-router] You cannot change <Router routes>; it will be ignored
+```
+
+HMR代表的就是Hot-Module-Reload，從日誌中可以看到修改Home.js文件的更新被瀏覽器端發現並做了自動更新。
+
+不過，也發現了一個錯誤警告：
+
+```
+Warning: [react-router] You cannot change <Router routes>; it will be ignored
+```
+
+這個警告是因為React-Router在熱加載時的報警，這並不會產生什麼實質危害，但是這警告出現也讓人討厭，我們可修改*src/Routers.js*，把路由規則從Router的子組件中抽取出來作為獨立變量，就可解決這個問題：
+
+```js
+const routes = (
+  <Route path="/" component={App}>
+    <IndexRoute getComponent={getHomePage}/>
+    <Route path="home" getComponent={getHomePage}/>
+    <Route path="counter" getComponent={getCounterPage}/>
+    <Route path="about" getComponent={getAboutPage}/>
+    <Route path="*" getComponent={getNotFoundPage}/>
+  </Route>
+);
+class Routes extends  Component {
+  render() {
+    return (
+      <Router history={history} createElement={createElement}>
+        {routes}
+      </Router>
+    );
+  }
+}
+```
+
+改完之後，這個錯誤提示就消失了。
+
+現在我們已經有了伺服器端渲染的開發模式和產品模式，接下來我們要實現真正的同構。

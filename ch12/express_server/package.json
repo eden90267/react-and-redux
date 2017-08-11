@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "cross-env": "^5.0.5",
     "ejs": "^2.5.7",
     "express": "^4.15.4",
     "react": "^15.6.1",
@@ -18,8 +19,8 @@
     "start": "node scripts/start.js",
     "build": "node scripts/build.js",
     "test": "node scripts/test.js --env=jsdom",
-    "start_prod": "NODE_ENV=production node server/index.js",
-    "start:isomorphic": "NODE_ENV=development node server/index.js"
+    "start_prod": "cross-env NODE_ENV=production node server/index.js ",
+    "start:isomorphic": "cross-env NODE_ENV=development node server/index.js"
   },
   "devDependencies": {
     "autoprefixer": "6.7.2",

@@ -1,9 +1,11 @@
-import React from 'react';
+import React, {Component} from 'react';
 
-const NotFound = () => {
-  return (
-    <div>NotFound</div>
-  )
-};
+class NotFound extends Component {
+  render() {
+    return (
+      <div>NotFound</div>
+    );
+  }
+}
 
 export default NotFound;
