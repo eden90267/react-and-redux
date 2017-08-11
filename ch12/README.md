@@ -391,3 +391,149 @@ class Routes extends  Component {
 改完之後，這個錯誤提示就消失了。
 
 現在我們已經有了伺服器端渲染的開發模式和產品模式，接下來我們要實現真正的同構。
+
+## React同構
+
+為了實現同構，需要實現這些功能：
+
+- 在伺服器端根據React組件產生HTML
+- 資料脫水和注水
+- 伺服器端管理Redux Store
+- 支持伺服器和瀏覽器獲取相同資料源
+
+這是一個複雜的過程，讓我們一一道來。
+
+### React伺服器渲染HTML
+
+React在伺服器端渲染使用函數和瀏覽器端不一樣，在瀏覽器端的函數是render，接受兩個參數，第一個是一個React組件，第二個是這個組件需要裝載的DOM節點位置。代碼模式是這樣：
+
+```js
+import ReactDOM from 'react-dom';
+ReactDOM.render(<RootComponent />, document.getElementById('root'));
+```
+
+當render函數被調用的時候，必須保證id為root的DOM元素作為容器真的存在，render函數的工作就是啟動RootComponent的裝載過程，最後產生的DOM元素就存在root容器之中。
+
+在瀏覽器端，最終的產出是DOM元素，而在伺服器端，最終產生的是字符串，因為返回給瀏覽器的就是HTML字符串，所以伺服器端渲染不需要指定容器元素，只有一個返回字符串的函數renderToString，使用這個函數的代碼模式是這樣：
+
+```js
+import ReactDOMServer from 'react-dom/server';
+const appHtml = ReactDOMServer.renderToString(<RootComponent />);
+```
+
+renderToString函數的返回結果就是一個HTML字符串，至於這個字符串如何處理，要由開發者來決定，當然，在這個例子中，為了和瀏覽器一致，我們會把返回的字串嵌在id為root的元素中。
+
+當然，只是把renderToString返回的字符串在瀏覽器中渲染出來，用戶看到的只是純靜態的HTML而已，並不具有任何動態的交互功能。要讓渲染的HTML"活"起來，還需要瀏覽器端執行JavaScript代碼。因為React將HTML、樣式和JavaScript封裝在一個組件中的特點，所以讓React組件渲染出的HTML"活"起來的代碼就存在於React組件之中，也就是說，如果應用React伺服器端渲染，一樣要利用React瀏覽器端渲染。
+
+過程是這樣，伺服器端渲染產生的React組件HTML被下載到瀏覽器網頁之中，瀏覽器網頁需要使用render函數重新渲染一遍React組件。這個過程看起來會比較浪費，不過在瀏覽器端的render函數結束之前，用戶就已經可以看見伺服器端渲染的結果了，所以用戶感知的性能提高了。
+
+為了避免不必要的DOM操作，伺服器端在渲染React組件時會計算所生成HTML的校驗和，並存放在根節點的屬性data-react-checksum中。在瀏覽器渲染過程中，在重新計算出預期的DOM樹之後，也會計算一遍校驗和，和伺服器計算的校驗和做一個對比。如果發現兩者相同，就沒有必要做DOM操作了，如果不同，那就應用瀏覽器端產生的DOM樹，覆蓋掉伺服器產生的HTML。
+
+很明顯，如果伺服器端渲染和瀏覽器端渲染產生的內容不一樣，用戶會先看到伺服器端渲染的內容，隨後瀏覽器端會重新渲染內容。用戶就會看到一次閃爍，這樣給用戶的體驗很不好。所以，實現同構很重要的一條，就是一定要保證伺服器端和瀏覽器端渲染的結果要一模一樣。
+
+如果我們能夠保證伺服器端和瀏覽器端使用的React組件代碼是一致的，那導致渲染結果不一致的唯一可能就是提供給React組件的資料不一致。
+
+為了讓兩端資料一致，就要涉及"脫水"和"注水"的概念。
+
+### 脫水和注水
+
+伺服器端渲染產出了HTML，但是在交給瀏覽器的網頁不光要有HTML，還需要有"脫水資料"，也就是在伺服器渲染過程中給React組件的輸入資料，這樣，當瀏覽器端渲染時，可以直接根據"脫水資料"來渲染React組件，這種過程叫做"注水"。使用脫水數據可以避免沒有必要的API伺服器請求，更重要的是，保證了兩端渲染的結果一致，這樣不會產生網頁內容的閃動。
+
+脫水資料的傳遞方式一般是在網頁中內嵌一段JavaScript，內容就是把傳遞給React組件的資料賦值給某個變數，這樣瀏覽器就可以直接透過這個變數獲取脫水資料。
+
+使用EJS作為伺服器端模板，渲染脫水資料的代碼模式基本這樣，其中appHTML是React的renderToString返回的HTML字符串，而dehydrateState就是脫水資料的JSON字符串表示形式，賦值給了全局變數DEHYDRATED_STATE，在瀏覽器端，可以直接讀取到這個變數。
+
+```ejs
+<div id="root"><%- appHtml %></div>
+<script>
+  var DEHYDRATED_STATE = <%- dehydratedState %>
+</script>
+```
+
+需要注意的是，使用脫水資料要防止跨站腳本攻擊(XSS Attack)，因為脫水資料有可能包含用戶輸入的成分，而用戶的輸入誰也保不準包含什麼，例如dehydrateState包含用戶可以控制的字符串，那就可能被利用，產生下面的網頁輸出：
+
+```html
+<script>
+  var DEHYDRATED_STATE = "...</script><script>doBedThing()</script>";
+</script>
+```
+
+既然我們使用Redux來管理應用資料，那麼脫水資料的就應該是來自Redux的Store，借助於react-redux的Provider幫助，可以很容易地讓所有React都從一個store獲得資料，然後我們在調用伺服器端渲染的函數renderToString之後調用store的getState函數，得到的結果就可以作為"脫水資料"：
+
+```js
+const appHtml = ReactDOMServer.renderToString(
+  <Provider store={store}>
+    <RouterContext {...renderProps}/>
+  </Provider>
+);
+
+const dehydratedState = store.getState();
+```
+
+脫水資料一定不能太大，因為脫水資料要占用網頁的大小，如果脫水資料過大，可能會影響性能，讓伺服器端渲染失去意義。
+
+由此，我們再次看出讓Redux Store上的不要存冗餘資料的必要性，只要我們保證Store上狀態沒有冗餘，在產生脫水資料的時候就輕鬆太多，不然很難分辨哪些資料不必要放在脫水資料中。
+
+### 伺服器端Redux Store
+
+在伺服器端使用Redux，必須要對每個請求都創造一個新的Store，所以一個Store就足夠了，但是在伺服器端會接受到很多瀏覽器端的請求，畢竟我們的伺服器不會設計成只滿足一個用戶在線使用，既然特定每個請求的資料存在Store裡，當然對每個請求都要重新構建一個store實例。
+
+所以，我們要修改一下*src/Store.js*的實現，把構建Store的代碼放在一個函數中。
+
+```js
+import {createStore, applyMiddleware, combineReducers, compose} from 'redux';
+import {routerReducer} from 'react-router-redux';
+
+import resetEnhancer from './enhancer/reset';
+
+const configureStore = () => {
+  const originalReducers = {
+    routing: routerReducer
+  };
+  const reducer = combineReducers(originalReducers);
+
+  const win = window;
+
+  const middlewares = [];
+  if (process.env.NODE_ENV !== 'production') {
+    middlewares.push(require('redux-immutable-state-invariant').default());
+  }
+
+  const storeEnhancers = compose(
+    resetEnhancer,
+    applyMiddleware(...middlewares),
+    (win && win.devToolsExtension) ? win.devToolsExtension() : (f) => f,
+  );
+
+  const store = createStore(reducer, {}, storeEnhancers);
+  store._reducers = originalReducers;
+  
+  return store;
+};
+
+export {configureStore};
+```
+
+因為*src/Store.js*導出的不再是一個Store實例而是一個configStore函數，對應導入這個文件的代碼也要對應改變。
+
+### 支持伺服器和瀏覽器獲取共同資料源
+
+脫水資料只在瀏覽器訪問的首頁發揮作用，之後，用戶可以操作網頁跳轉，這時候網頁需要自己獲得資料提供給React組件。
+
+舉個例子，我們希望Counter頁面顯示的計數初始值由伺服器端確定，而不是一個代碼中固定的數字。用戶首先直接訪問[http://localhost:9000/home]()頁面，然後又透過點擊頂欄的"Counter"鏈接[http://localhost:9000/counter]()頁面，因為這是一個單頁應用，Counter頁面的HTML是完全由瀏覽器端渲染的，所以沒有伺服器的脫水資料，所有瀏覽器需要一個API請求來獲取初始值。同樣，用戶可能在Counter頁面點擊瀏覽器刷新按鈕，或者在另一個窗口直接輸入Counter頁面的地址，這時網頁的HTML是伺服器端渲染產生的，這樣伺服器也須要有能夠獲取初始值的能力。
+
+很明顯，最簡單的作法，就是有一個API伺服器提供接口讓伺服器和瀏覽器都能夠訪問，這樣無論是什麼樣的場景，伺服器和瀏覽器獲得資料都是一樣的。
+
+API伺服器作為獨立的伺服器可能並不在網頁伺服器同一個域名下，這樣如果要瀏覽器端訪問，就要在API伺服器配置跨域訪問策略，有的時候，API伺服器並不在一個產品的控制範圍內，無法配置跨域策略，這樣，就需要網頁伺服器同域名下搭起一個代理，把請求轉發到API伺服器。
+
+在我們例子中，我們在server/app.dev.js中增加一個路由規則，模擬一個API伺服器，提供一個計數初始值的接口：
+
+```js
+app.use('/api/count', (req, res) => {
+  res.json({count: 100});
+});
+```
+
+到現在為止，我們的理論準備工作差不多了，接下來就要實踐同構。
+
+### 伺服器端路由

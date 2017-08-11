@@ -4,11 +4,10 @@ import {Provider} from "react-redux";
 import {syncHistoryWithStore} from 'react-router-redux';
 import {combineReducers} from 'redux';
 
-import store from './Store';
+import {configureStore} from './Store';
 import App from "./pages/App";
-// import Home from './pages/Home';
-// import About from './pages/About';
-// import NotFound from './pages/NotFound';
+
+const store = configureStore();
 
 const createElement = (Component, props) => {
   return (

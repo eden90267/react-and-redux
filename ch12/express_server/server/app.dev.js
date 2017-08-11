@@ -27,6 +27,10 @@ app.use(require('webpack-hot-middleware')(compiler, {
   heartbeat: 10 * 1000
 }));
 
+app.use('/api/count', (req, res) => {
+  res.json({count: 100});
+});
+
 app.get('*', (req, res) => {
   const assetManifest = getAssetManifest();
 
