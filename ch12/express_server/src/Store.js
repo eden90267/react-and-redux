@@ -9,7 +9,7 @@ const configureStore = () => {
   };
   const reducer = combineReducers(originalReducers);
 
-  const win = window;
+  const win = global.window;
 
   const middlewares = [];
   if (process.env.NODE_ENV !== 'production') {

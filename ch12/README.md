@@ -537,3 +537,273 @@ app.use('/api/count', (req, res) => {
 到現在為止，我們的理論準備工作差不多了，接下來就要實踐同構。
 
 ### 伺服器端路由
+
+因為瀏覽器端使用了React-Router作為路由，沒有理由不在伺服器端使用一致的方法，不過在伺服器端使用React-Router的方式和瀏覽器端不一樣，在瀏覽器端，整個Router作為一個React組件傳遞一個ReactDOM的render函數，Router可以自動和URL同步，但是對於伺服器端的過程，URL對應到路由規則的過程需要用match函數：
+
+```js
+import {match, RouterContext} from 'react-router';
+
+match({routes, location: requestUrl}, function(err, redirect, renderProps) {
+  if (err) {
+    return res.status(500).send(err.message);
+  }
+  if (redirect) {
+    return res.redirect(redirect.pathname + redirect.search);
+  }
+  if (!renderProps) {
+    return res.status(404).send('Not Found');
+  }
+  const appHtml = ReactDOMServer.renderToString(
+    <RouterContext {...renderProps}/>
+  );
+});
+```
+
+match函數接受一個對象和一個回調函數作為參數，對象參數中的routes就是Route構成的路由規則樹，這裡根本用不上Router類，所以也用不上Router的history屬性，這就是和瀏覽器端渲染的最大區別。match是透過對象參數中的location欄位來確定路徑的，不是靠和瀏覽器地址欄關聯的history。
+
+當match函數根據location和routes匹配完成後，就會調用第二個回調函數參數，根據回調函數第一個參數err和第二個參數redirect可以判斷匹配是否錯誤或者是一個重定向。一切順利的話，第一和第二參數都是空，有用的就是第三個參數renderProps，這個renderProps包含路由的所有信息，把它用擴展操作符展開作為屬性傳遞給RouterContext組件，渲染的結果就是伺服器端渲染產生的HTML字符串。
+
+如果應用沒有使用代碼分片，瀏覽器的路由部分就無需任何改變，不過在我們的例子中已經應用了代碼分片，所以應用了伺服器端渲染之後，瀏覽器端渲染也要做對應修改，使用match函數來完成匹配，否則，伺服器端和瀏覽器中產生的HTML會不一致，這種不一致不是脫水資料問題導致，而是產生兩端的代碼不一致導致的。
+
+```js
+match({history, routes}, (err, redirectLocation, renderProps) => {
+  ReactDOM.render(
+    <Router {...renderProps} />,
+    domElement
+  );
+});
+```
+
+可以注意到，到瀏覽器端match函數確定當前路徑的參數又是用history，不像伺服器那樣使用URL字符串。
+
+## 同構實例
+
+CounterPage的定義要發生變化，之前CounterPage導出一個initialState固定的值，現在我們希望伺服器和瀏覽器共用一個資料源，這個資料源就是之前我們定義的API接口，所以將initialState改為initState函數，這個函數返回一個Promise實例，在下面的代碼中可以看到，使用Promise可以大大簡化代碼的結構。
+
+*src/pages/CounterPage.js*文件中，initState函數根據環境變量HOST_NAME決定API地址，沒有HOST_NAME那就是用一個指向本地開發環境的域名，這是一個常用的技巧。
+
+```js
+const END_POINT = process.env.HOST_NAME || 'localhost:9000';
+const initState = () => {
+  return fetch(`http://${END_POINT}/api/count`).then(response => {
+    if (response.staus !== 200) {
+      throw new Error(`Fail to fetch count`);
+    }
+    return response.jspn();
+  }).then(responseJson => {
+    return responseJson.count;
+  })
+};
+
+export {page, reducer, initState, stateKey};
+```
+
+處理完CounterPage，接下來就要準備伺服器端的路由邏輯。
+
+因為實際的渲染工作和路由關係緊密，所以要把這兩個功能都集中在文件*server/routes.Server.js*中，讓*server/app.dev.js*和*server/app.prod.js*只需要提供assetManifest，把req和res參數傳遞給renderPage函數，代碼如下：
+
+```js
+const renderPage = require('./routes.Server').renderPage;
+
+app.get('*', (req, res) => {
+  if (!assetManifest) {
+    assetManifest = getAssetManifest();
+  }
+
+  return renderPage(req, res, assetManifest);
+});
+```
+
+所以，主要的功能其實是在*server/routes.Server.js*文件中，我們來看看這個文件。
+
+在伺服器端渲染，沒有必要使用分片，自然也不需動態加載模組，所有頁面都是直接導入，比如導入Home頁面的代碼就是這樣：
+
+```js
+import Home from '../src/pages/Home.js';
+```
+
+對於App、Home、About和NotFound頁面用上面方法import就可以，但是CounterPage導入有一點特殊，不僅要導入視圖，還要導入這個頁面對應的reducer、stateKey和初始狀態initState，代碼如下：
+
+```js
+import {page as CounterPage, reducer, stateKey, initState} from '../src/pages/CounterPage.js';
+```
+
+路由規則，因為不需要分片下載，所以非常簡單，可直接用一個routes變量代表，代碼如下：
+
+```js
+const routes = (
+  <Route path="/" component={App}>
+    <IndexRoute path="home" component={Home}/>
+    <Route path="home" component={Home}/>
+    <Route path="counter" component={CounterPage}/>
+    <Route path="about" component={About}/>
+    <Route path="*" component={NotFound}/>
+  </Route>
+);
+```
+
+最關鍵的就是renderPage函數，這個函數承擔了來自瀏覽器請求的路由和渲染工作。
+
+伺服器端路由使用React-Router提供的match函數，如果匹配路由成功，那就調用另一個函數renderMatchedPage渲染頁面結果：
+
+```js
+export const renderPage = (req, res, assetManifest) => {
+  match({routes, location: req.url}, function (err, redirect, renderProps) {
+    // 檢查error和redirect，如果存在就讓res結束
+    return renderMatchedPage(req, res, renderProps, assetManifest);
+  });
+};
+```
+
+當renderMatchedPage函數被調用時，代表已經匹配中了某個路由，接下來要做的工作就是獲得相關資料把這頁面渲染出來。
+
+之前已經說過，為了保證伺服器對每個請求的獨立處理，必須每個請求都建一個Store，所以renderMatchedPage函數做的第一件事就是創建一個Store，然後獲取初始化Store狀態的Promise對象，代碼如下：
+
+```js
+function renderMatchedPage(req, res, renderProps, assetManifest) {
+  const store = configureStore();
+  // 獲取匹配Page的initState函數
+  const statePromise = initState ? initState() : Promise.resolve(null);
+```
+
+在這應用中，只有CounterPage才提供initState，如果匹配的頁面不提供initState，那就使用Promise.resolve產生一個Promise對象，這對象不提供任何資料。但是，在沒有initState的情況下也能給statePromise變量一個PromiseB對象，從而使得後續處理代碼不用關心如何獲取資料。
+
+當statePromise的then函數被調用時，代表頁面所需的文件已經準備好，這時候首先要設置Store上的狀態，同時也要更新Store上的reducer，透過我們定義的reset enhancer可以完成：
+
+```js
+statePromise.then((result) => {
+  if (stateKey) {
+    const state = store.getState();
+    store.reset(combineReducers({
+      ...store._reducers,
+      [stateKey]: reducer
+    }), {
+      ...state,
+      [stateKey]: result
+    });
+  }
+});
+```
+
+至此，Store已經準備好了，接下來就透過React提供的伺服器端渲染函數renderToString產生對應的HTML字符串，存放在appHtml變數中：
+
+```js
+const appHtml = ReactDOMServer.renderToString(
+  <Provider store={store}>
+    <RouterContext {...renderProps}/>
+  </Provider>
+);
+```
+
+返回給瀏覽器的HTML中只包含appHtml還不夠，還需要包含“脫水資料”，所以在這渲染完HTML之後，要立即把Store上的狀態提取出來作為“脫水資料”，因為伺服器端React組件用的是同樣的狀態，所以瀏覽器端用這樣“脫水資料”渲染出來的結果絕對是一樣的。
+
+獲取“脫水資料”的代碼如下：
+
+```js
+const dehydratedState = store.getState();
+```
+
+到這裡，React組件產生的HTML準備好了，“脫水資料”也準備好了，接下來就透過Express提供的res.render渲染結果就可以了：
+
+```js
+res.render('index', {
+  title: 'Sample React App',
+  PUBLIC_URL: '/',
+  assetManifest,
+  appHtml,
+  dehydratedState: safeJSONstringify(dehydratedState)
+});
+```
+
+這裏，“脫水資料”dehydratedState透過函數safeJSONstringify被轉化為字串，這樣在ejs模板文件中直接渲染這個字符串就行。注意，這裏不能直接使用JSON.stringify轉化為字串，因為“脫水資料”可能包含不安全的字符，需要避免跨站腳本攻擊的漏洞。
+
+safeJSONstringify函數的代碼如下：
+
+```js
+function safeJSONstringify(obj) {
+  return JSON.stringify(obj).replace(/<\/script/g, '<\\/script').replace(/<!--/g, '<\\!--');
+}
+```
+
+最後，我們來看一看ejs模板文件*server/views/index.ejs*，伺服器端渲染產生的appHtml字符串和脫水資料dehydratedState在這裡被渲染到返回給瀏覽器的HTML中：
+
+```ejs
+<body>
+<div id="root"><%- appHtml %></div>
+<script>
+    var DEHYDRATED_STATE = <%- dehydratedState %>
+</script>
+<script src="<%= PUBLIC_URL + assetManifest['common.js'] %>"></script>
+<script src="<%= PUBLIC_URL + assetManifest['main.js'] %>"></script>
+</body>
+```
+
+其中dehydratedState是被渲染到內嵌的script中，賦值給一個DEHYDRATED_STATE變量，這個變量在瀏覽器端可以被訪問到，利用這個變數就可以對React組件“注水”，讓他們重生，接下來我們看看瀏覽器端如何實現“注水”。
+
+和伺服器一樣，入口函數*src/index.js*把渲染的工作完全交給Routes.js，所做的只是提供裝載React組件的DOM元素。
+
+```js
+import {renderRoutes} from './Routes';
+
+renderRoutes(document.getElementById('root'));
+```
+
+在*src/Routes.js*文件中是更新的瀏覽器端路由和渲染功能，主要的改變在getCounterPage函數中：
+
+```js
+const getCounterPage = (nextState, callback) => {
+  require.ensure([], function (require) {
+    const {page, reducer, stateKey, initState} = require('./pages/CounterPage');
+
+    const dehydratedState = (win && win.DEHYDRATED_STATE);
+    const state = store.getState();
+    const mergedState = {...dehydratedState, ...state};
+    const statePromise = mergedState[stateKey]
+      ? Promise.resolve(mergedState[stateKey])
+      : initState();
+```
+
+和伺服器端類似，首先要獲取一個statePromise，優先從“脫水資料”中獲得初始狀態，只有沒有脫水初始狀態的時候，才使用initState函數去異步獲取初始化資料。
+
+當statePromise完成，一樣可使用reset功能設置Store的狀態和reducer，代碼如下：
+
+```js
+statePromise.then((result) => {
+  store.reset(combineReducers({
+    ...store._reducers,
+    [stateKey]: reducer
+  }), {
+    ...state,
+    [stateKey]: result
+  });
+
+  callback(null, page);
+});
+```
+
+因為使用了伺服器端渲染，同時瀏覽器端使用React-Router的代碼分片功能，所以瀏覽器端也需要用match函數來實現路由：
+
+```js
+export const renderRoutes = (domElement) => {
+  match({history, routes}, (err, redirectLocation, renderProps) => {
+    ReactDOM.render(
+      <Provider store={store}>
+        <Router {...renderProps}/>
+      </Provider>,
+      domElement
+    );
+  });
+};
+```
+
+至此，一個同構應用完成了。
+
+## 本章小節
+
+在這一章中，我們首先對比了伺服器端渲染和瀏覽器端渲染各自的優缺點，React本身很適合創建同構的應用，因為一個功能模組全部由JavaScript實現，既可以在伺服器端運行，也可以在瀏覽器端運行。
+
+為了實現伺服器端渲染，對create-react-app產生的應用配製作一系列修改，要使用express作為伺服器框架。
+
+為了實現同構，伺服器端除了提供渲染出的HTML字符串，還要提供脫水資料，才能保持兩端渲染的內容一致。
+
+和瀏覽器不同，伺服器要對每個請求都創建一個Store實例，這樣才能保證各個請求互不干擾。

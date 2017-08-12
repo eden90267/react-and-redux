@@ -1,5 +1,6 @@
-import React, {Component} from 'react';
-import {Router, Route, IndexRoute, browserHistory} from 'react-router';
+import React from 'react';
+const ReactDOM = require("react-dom");
+import {Router, Route, IndexRoute, browserHistory, match} from 'react-router';
 import {Provider} from "react-redux";
 import {syncHistoryWithStore} from 'react-router-redux';
 import {combineReducers} from 'redux';
@@ -8,14 +9,7 @@ import {configureStore} from './Store';
 import App from "./pages/App";
 
 const store = configureStore();
-
-const createElement = (Component, props) => {
-  return (
-    <Provider store={store}>
-      <Component {...props}/>
-    </Provider>
-  )
-};
+const win = global.window;
 
 const getHomePage = (nextState, callback) => {
   require.ensure([], function (require) {
@@ -24,17 +18,26 @@ const getHomePage = (nextState, callback) => {
 };
 const getCounterPage = (nextState, callback) => {
   require.ensure([], function (require) {
-    const {page, reducer, stateKey, initialState} = require('./pages/CounterPage');
+    const {page, reducer, stateKey, initState} = require('./pages/CounterPage');
 
+    const dehydratedState = (win && win.DEHYDRATED_STATE);
     const state = store.getState();
-    store.reset(combineReducers({
-      ...store._reducers,
-      counter: reducer
-    }), {
-      ...state,
-      [stateKey]: initialState
+    const mergedState = {...state, ...dehydratedState};
+    const statePromise = mergedState[stateKey]
+      ? Promise.resolve(mergedState[stateKey])
+      : initState();
+
+    statePromise.then((result) => {
+      store.reset(combineReducers({
+        ...store._reducers,
+        [stateKey]: reducer
+      }), {
+        ...state,
+        [stateKey]: result
+      });
+
+      callback(null, page);
     });
-    callback(null, page);
   }, 'counter');
 };
 const getAboutPage = (nextState, callback) => {
@@ -59,14 +62,14 @@ const routes = (
     <Route path="*" getComponent={getNotFoundPage}/>
   </Route>
 );
-class Routes extends  Component {
-  render() {
-    return (
-      <Router history={history} createElement={createElement}>
-        {routes}
-      </Router>
-    );
-  }
-}
 
-export default Routes;
+export const renderRoutes = (domElement) => {
+  match({history, routes}, (err, redirectLocation, renderProps) => {
+    ReactDOM.render(
+      <Provider store={store}>
+        <Router {...renderProps}/>
+      </Provider>,
+      domElement
+    );
+  });
+};
