@@ -1102,7 +1102,16 @@ export default Provider;
 有了Provider，我們就可以改進應用的入口*src/index.js*文件了：
 
 ```js
-          ```
+import store from './Store.js';
+import Provider from './Provider.js';
+
+ReactDOM.render(
+  <Provider store={store}>
+    <ControlPanel />
+  </Provider>,
+  document.getElementById('root')
+);
+```
 
 在前面所有例子中，React.render的第一個函數就是頂層組件ControlPanel。現在Provider成了頂層組件。當然，Provider扮演的只是提供Context，包住了最頂層的ControlPanel，也就讓context覆蓋了整個應用中的所有組件。
 
